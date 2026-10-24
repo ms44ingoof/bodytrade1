@@ -1,4 +1,3 @@
-java
 package com.example.bodytrade;
 
 import net.minecraft.block.AbstractBlock;
