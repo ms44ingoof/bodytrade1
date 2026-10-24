@@ -4,6 +4,7 @@ import com.example.bodytrade.BodyPart;
 import com.example.bodytrade.BodyTradeMod;
 import com.example.bodytrade.TradeBlock;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
@@ -13,12 +14,16 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.Text;
+import net.minecraft.util.math.Vec3d;
 
 import java.util.*;
 
 public class BodyTradeClient implements ClientModInitializer {
-    public static final Set<BodyPart> MISSING = EnumSet.noneOf(BodyPart.class);
+    public static final Set<BodyPart> MISSING = BodyTradeMod.CLIENT_MISSING;
+    /** Название болезни -> время окончания (мс). */
     public static final Map<String, Long> EFFECTS = new LinkedHashMap<>();
+    /** Маска пропавших конечностей у всех игроков (для отрисовки модели). */
+    public static final Map<UUID, Integer> LIMBS = new HashMap<>();
 
     @Override
     public void onInitializeClient() {
@@ -33,33 +38,57 @@ public class BodyTradeClient implements ClientModInitializer {
             for (int i = 0; i < k; i++) eff.put(buf.readString(), buf.readVarInt());
             client.execute(() -> {
                 MISSING.clear(); MISSING.addAll(set);
+                EFFECTS.clear();
                 long now = System.currentTimeMillis();
                 eff.forEach((name, sec) -> EFFECTS.put(name, now + sec * 1000L));
                 if (client.currentScreen instanceof TradeScreen s) s.refresh();
             });
         });
 
-        ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> { MISSING.clear(); EFFECTS.clear(); });
+        ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.LIMBS_PACKET, (client, handler, buf, sender) -> {
+            UUID who = buf.readUuid();
+            int mask = buf.readVarInt();
+            client.execute(() -> { if (mask == 0) LIMBS.remove(who); else LIMBS.put(who, mask); });
+        });
 
-        // Меню слева сверху + затемнение половины экрана при потере глаза
+        ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> { MISSING.clear(); EFFECTS.clear(); LIMBS.clear(); });
+
+        // Без ступней - скольжение, как по льду
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            var p = mc.player;
+            if (p == null) return;
+            int feet = (MISSING.contains(BodyPart.LEFT_FOOT) ? 1 : 0) + (MISSING.contains(BodyPart.RIGHT_FOOT) ? 1 : 0);
+            if (feet == 0 || !p.isOnGround()) return;
+            if (p.input.movementForward != 0 || p.input.movementSideways != 0) return;
+            Vec3d v = p.getVelocity();
+            double s = Math.hypot(v.x, v.z);
+            if (s < 0.003 || s > 0.6) return;
+            double k = feet == 2 ? 1.6 : 1.3;
+            p.setVelocity(v.x * k, v.y, v.z * k);
+        });
+
+        // Меню слева сверху + полная темнота на стороне потерянного глаза
         HudRenderCallback.EVENT.register((ctx, delta) -> {
             MinecraftClient mc = MinecraftClient.getInstance();
             if (mc.options.hudHidden || mc.player == null) return;
             int w = ctx.getScaledWindowWidth(), h = ctx.getScaledWindowHeight();
             boolean le = MISSING.contains(BodyPart.LEFT_EYE), re = MISSING.contains(BodyPart.RIGHT_EYE);
-            if (le && !re) ctx.fill(0, 0, w / 2, h, 0xE6000000);
-            if (re && !le) ctx.fill(w / 2, 0, w, h, 0xE6000000);
+            if (le && !re) ctx.fill(0, 0, w / 2, h, 0xFF000000);
+            if (re && !le) ctx.fill(w / 2, 0, w, h, 0xFF000000);
 
             long now = System.currentTimeMillis();
             EFFECTS.values().removeIf(t -> t < now);
-            int y = 5;
+            int y = 5, shown = 0;
             if (!MISSING.isEmpty()) {
                 ctx.drawTextWithShadow(mc.textRenderer, "Отсутствует:", 5, y, 0xFF5555); y += 10;
-                for (BodyPart p : MISSING) { ctx.drawTextWithShadow(mc.textRenderer, "- " + p.nom, 5, y, 0xFFFFFF); y += 10; }
+                for (BodyPart p : MISSING) {
+                    if (shown >= 14) { ctx.drawTextWithShadow(mc.textRenderer, "...и ещё " + (MISSING.size() - shown), 5, y, 0xAAAAAA); y += 10; break; }
+                    ctx.drawTextWithShadow(mc.textRenderer, "- " + p.nom, 5, y, 0xFFFFFF); y += 10; shown++;
+                }
             }
             if (!EFFECTS.isEmpty()) {
                 y += 3;
-                ctx.drawTextWithShadow(mc.textRenderer, "Побочные эффекты:", 5, y, 0xFFFF55); y += 10;
+                ctx.drawTextWithShadow(mc.textRenderer, "Болезни и эффекты:", 5, y, 0xFFFF55); y += 10;
                 for (var e : EFFECTS.entrySet()) {
                     long sec = (e.getValue() - now) / 1000;
                     ctx.drawTextWithShadow(mc.textRenderer, "- " + e.getKey() + " (" + sec + " с)", 5, y, 0xFFFFFF); y += 10;
