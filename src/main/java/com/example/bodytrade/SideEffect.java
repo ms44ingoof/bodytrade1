@@ -99,7 +99,7 @@ public enum SideEffect {
             case PSYCHOSIS -> {
                 if (a % 300 == 0 && r.nextDouble() < 0.75) {
                     if (spawnMonsters(p)) {
-                        fx(p, StatusEffects.DARKNESS, 25, 0);
+                        fx(p, StatusEffects.DARKNESS, 140, 0);
                         play(p, SoundEvents.ENTITY_WARDEN_NEARBY_CLOSER, 0f, 0.8f);
                         bar(p, "Что-то идёт за вами...");
                     }
@@ -109,14 +109,14 @@ public enum SideEffect {
         }
     }
 
-    /** Появляются чудовища-галлюцинации (не больше 3 одновременно), охотятся только за этим игроком. */
+    /** Появляются чудовища-галлюцинации (только один одновременно), охотятся только за этим игроком. */
     private static boolean spawnMonsters(ServerPlayerEntity p) {
         if (!(p.getWorld() instanceof ServerWorld sw)) return false;
         Random r = p.getRandom();
         Box box = p.getBoundingBox().expand(48);
         int alive = sw.getEntitiesByClass(HallucinationEntity.class, box, e -> p.getUuid().equals(e.getOwnerId())).size();
-        if (alive >= 3) return false;
-        int want = 1 + r.nextInt(2);
+        if (alive > 0) return false; // пока жив прежний монстр, новые не появляются
+        int want = 1;
         boolean any = false;
         for (int i = 0; i < want; i++) {
             for (int tries = 0; tries < 12; tries++) {

@@ -1,5 +1,6 @@
 {
   "block.bodytrade.trade_altar": "Алтарь обмена",
   "entity.bodytrade.smiler": "Улыбака",
-  "entity.bodytrade.screamer": "Крикун"
+  "entity.bodytrade.screamer": "Крикун",
+  "block.bodytrade.admin_altar": "Админ-алтарь"
 }

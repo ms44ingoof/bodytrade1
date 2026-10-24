@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 
 import java.util.UUID;
 
-/** Чудовище-галлюцинация (болезнь "Психоз"): охотится только за своим игроком и исчезает через ~90 секунд. */
+/** Чудовище-галлюцинация (болезнь "Психоз"): охотится только за своим игроком и исчезает через 20 секунд. */
 public class HallucinationEntity extends HostileEntity {
     private UUID ownerId;
 
@@ -21,8 +21,8 @@ public class HallucinationEntity extends HostileEntity {
     public static DefaultAttributeContainer.Builder createAttributes() {
         return HostileEntity.createHostileAttributes()
                 .add(EntityAttributes.GENERIC_MAX_HEALTH, 30.0)
-                .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.12)
-                .add(EntityAttributes.GENERIC_ATTACK_DAMAGE, 4.0)
+                .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.17)
+                .add(EntityAttributes.GENERIC_ATTACK_DAMAGE, 6.0)
                 .add(EntityAttributes.GENERIC_FOLLOW_RANGE, 40.0);
     }
 
@@ -42,7 +42,7 @@ public class HallucinationEntity extends HostileEntity {
     @Override
     public void tick() {
         super.tick();
-        if (!getWorld().isClient && (ownerId == null || age > 1800)) discard();
+        if (!getWorld().isClient && (ownerId == null || age > 400)) discard();
     }
 
     /** Не исчезать на мирной сложности и вдали от игрока: живём ровно положенное время. */

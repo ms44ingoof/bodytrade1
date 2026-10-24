@@ -1,5 +1,6 @@
 {
   "block.bodytrade.trade_altar": "Trade Altar",
   "entity.bodytrade.smiler": "Smiler",
-  "entity.bodytrade.screamer": "Screamer"
+  "entity.bodytrade.screamer": "Screamer",
+  "block.bodytrade.admin_altar": "Admin Altar"
 }

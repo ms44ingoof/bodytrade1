@@ -34,6 +34,7 @@ public class BodyTradeClient implements ClientModInitializer {
         EntityRendererRegistry.register(BodyTradeMod.SCREAMER, ctx ->
                 new BillboardRenderer(ctx, new Identifier(BodyTradeMod.ID, "textures/entity/screamer.png"), 2.3f, 2.2f));
 
+        com.example.bodytrade.AdminBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new AdminScreen(pos));
         TradeBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new TradeScreen(pos));
 
         ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.SYNC_PACKET, (client, handler, buf, sender) -> {
@@ -49,6 +50,7 @@ public class BodyTradeClient implements ClientModInitializer {
                 long now = System.currentTimeMillis();
                 eff.forEach((name, sec) -> EFFECTS.put(name, now + sec * 1000L));
                 if (client.currentScreen instanceof TradeScreen s) s.refresh();
+                else if (client.currentScreen instanceof AdminScreen a) a.refresh();
             });
         });
 

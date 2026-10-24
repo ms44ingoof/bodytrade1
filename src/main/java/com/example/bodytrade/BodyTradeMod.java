@@ -46,6 +46,7 @@ public class BodyTradeMod implements ModInitializer {
     public static final Identifier RETURN_PACKET = new Identifier(ID, "return");
     public static final Identifier SYNC_PACKET = new Identifier(ID, "sync");
     public static final Identifier LIMBS_PACKET = new Identifier(ID, "limbs");
+    public static final Identifier ADMIN_PACKET = new Identifier(ID, "admin");
 
     /** Шанс болезни/побочного эффекта после каждой сделки. */
     public static final double SIDE_EFFECT_CHANCE = 0.4;
@@ -58,7 +59,7 @@ public class BodyTradeMod implements ModInitializer {
     private static final Set<Item> SOFT_FOOD = Set.of(Items.MUSHROOM_STEW, Items.BEETROOT_SOUP, Items.RABBIT_STEW,
             Items.SUSPICIOUS_STEW, Items.HONEY_BOTTLE, Items.MELON_SLICE, Items.SWEET_BERRIES, Items.GLOW_BERRIES, Items.PUMPKIN_PIE);
 
-    public static Block TRADE_BLOCK;
+    public static Block TRADE_BLOCK, ADMIN_BLOCK;
     public static EntityType<HallucinationEntity> SMILER, SCREAMER;
     private static final Map<UUID, Float> LAST_FALL = new HashMap<>();
     private static final Map<UUID, Integer> LAST_FOOD = new HashMap<>();
@@ -76,7 +77,10 @@ public class BodyTradeMod implements ModInitializer {
                         .dimensions(EntityDimensions.fixed(1.0f, 2.2f)).build());
         FabricDefaultAttributeRegistry.register(SMILER, HallucinationEntity.createAttributes());
         FabricDefaultAttributeRegistry.register(SCREAMER, HallucinationEntity.createAttributes());
-        ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> e.add(TRADE_BLOCK));
+        ADMIN_BLOCK = Registry.register(Registries.BLOCK, new Identifier(ID, "admin_altar"),
+                new AdminBlock(FabricBlockSettings.create().strength(3.0f)));
+        Registry.register(Registries.ITEM, new Identifier(ID, "admin_altar"), new BlockItem(ADMIN_BLOCK, new FabricItemSettings()));
+        ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> { e.add(TRADE_BLOCK); e.add(ADMIN_BLOCK); });
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity p = handler.player;
@@ -106,6 +110,12 @@ public class BodyTradeMod implements ModInitializer {
             BlockPos pos = buf.readBlockPos();
             BodyPart part = BodyPart.byId(buf.readString());
             server.execute(() -> handleReturn(server, player, pos, part));
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(ADMIN_PACKET, (server, player, h, buf, resp) -> {
+            BlockPos pos = buf.readBlockPos();
+            String action = buf.readString();
+            server.execute(() -> handleAdmin(server, player, pos, action));
         });
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
@@ -195,6 +205,54 @@ public class BodyTradeMod implements ModInitializer {
         st.remove(p.getUuid(), part);
         title(p, Text.literal("Вы вернули: " + part.nom.toLowerCase()).formatted(Formatting.GREEN), Text.literal("Последствия сняты").formatted(Formatting.GRAY));
         p.sendMessage(Text.literal("Часть тела возвращена: " + part.nom + ". Связанные последствия исчезли.").formatted(Formatting.GREEN));
+        sync(p);
+        broadcastLimbs(server, p);
+    }
+
+    /** Админ-блок: выдать/снять любую часть тела или болезнь. Доступно в креативе или операторам (уровень 2). */
+    private static void handleAdmin(MinecraftServer server, ServerPlayerEntity p, BlockPos pos, String action) {
+        if (!p.getWorld().getBlockState(pos).isOf(ADMIN_BLOCK) || p.squaredDistanceTo(Vec3d.ofCenter(pos)) > 64) return;
+        if (!(p.isCreative() || p.hasPermissionLevel(2))) {
+            p.sendMessage(Text.literal("Нужны права администратора (креатив или оператор).").formatted(Formatting.RED));
+            return;
+        }
+        BodyState st = BodyState.of(server);
+        UUID id = p.getUuid();
+        long now = server.getOverworld().getTime();
+        if (action.startsWith("part:")) {
+            BodyPart part = BodyPart.byId(action.substring(5));
+            if (part == null) return;
+            if (st.get(id).contains(part)) {
+                st.remove(id, part);
+                p.sendMessage(Text.literal("[Админ] Возвращено: " + part.nom).formatted(Formatting.GREEN));
+            } else {
+                st.add(id, part);
+                p.sendMessage(Text.literal("[Админ] Отнято: " + part.nom).formatted(Formatting.RED));
+                p.sendMessage(Text.literal(part.consequence).formatted(Formatting.RED));
+            }
+        } else if (action.startsWith("effect:")) {
+            SideEffect se;
+            try { se = SideEffect.valueOf(action.substring(7)); } catch (IllegalArgumentException ex) { return; }
+            if (st.effects(id).containsKey(se) && st.effects(id).get(se) > now) {
+                st.effects(id).remove(se);
+                st.markDirty();
+                p.sendMessage(Text.literal("[Админ] Снята болезнь: " + se.title).formatted(Formatting.GREEN));
+            } else {
+                st.setEffect(id, se, now + se.seconds * 20L);
+                p.sendMessage(Text.literal("[Админ] Выдана болезнь: " + se.title).formatted(Formatting.YELLOW));
+                p.sendMessage(Text.literal(se.title + ": " + se.message).formatted(Formatting.YELLOW));
+            }
+        } else if (action.equals("parts_clear")) {
+            st.get(id).clear();
+            st.markDirty();
+            p.sendMessage(Text.literal("[Админ] Все части тела возвращены.").formatted(Formatting.GREEN));
+        } else if (action.equals("effects_clear")) {
+            st.effects(id).clear();
+            st.markDirty();
+            p.sendMessage(Text.literal("[Админ] Все болезни сняты.").formatted(Formatting.GREEN));
+        } else {
+            return;
+        }
         sync(p);
         broadcastLimbs(server, p);
     }
