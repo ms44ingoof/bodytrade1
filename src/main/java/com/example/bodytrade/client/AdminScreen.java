@@ -1,4 +1,3 @@
-java
 package com.example.bodytrade.client;
 
 import com.example.bodytrade.BodyPart;
