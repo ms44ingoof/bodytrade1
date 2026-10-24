@@ -11,7 +11,12 @@ import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.fabric.api.object.builder.v1.block.FabricBlockSettings;
+import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
+import net.fabricmc.fabric.api.object.builder.v1.entity.FabricEntityTypeBuilder;
 import net.minecraft.block.Block;
+import net.minecraft.entity.EntityDimensions;
+import net.minecraft.entity.EntityType;
+import net.minecraft.entity.SpawnGroup;
 import net.minecraft.entity.effect.StatusEffect;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
@@ -54,6 +59,7 @@ public class BodyTradeMod implements ModInitializer {
             Items.SUSPICIOUS_STEW, Items.HONEY_BOTTLE, Items.MELON_SLICE, Items.SWEET_BERRIES, Items.GLOW_BERRIES, Items.PUMPKIN_PIE);
 
     public static Block TRADE_BLOCK;
+    public static EntityType<HallucinationEntity> SMILER, SCREAMER;
     private static final Map<UUID, Float> LAST_FALL = new HashMap<>();
     private static final Map<UUID, Integer> LAST_FOOD = new HashMap<>();
 
@@ -62,6 +68,14 @@ public class BodyTradeMod implements ModInitializer {
         TRADE_BLOCK = Registry.register(Registries.BLOCK, new Identifier(ID, "trade_altar"),
                 new TradeBlock(FabricBlockSettings.create().strength(3.0f)));
         Registry.register(Registries.ITEM, new Identifier(ID, "trade_altar"), new BlockItem(TRADE_BLOCK, new FabricItemSettings()));
+        SMILER = Registry.register(Registries.ENTITY_TYPE, new Identifier(ID, "smiler"),
+                FabricEntityTypeBuilder.<HallucinationEntity>create(SpawnGroup.MONSTER, HallucinationEntity::new)
+                        .dimensions(EntityDimensions.fixed(0.8f, 2.0f)).build());
+        SCREAMER = Registry.register(Registries.ENTITY_TYPE, new Identifier(ID, "screamer"),
+                FabricEntityTypeBuilder.<HallucinationEntity>create(SpawnGroup.MONSTER, HallucinationEntity::new)
+                        .dimensions(EntityDimensions.fixed(1.0f, 2.2f)).build());
+        FabricDefaultAttributeRegistry.register(SMILER, HallucinationEntity.createAttributes());
+        FabricDefaultAttributeRegistry.register(SCREAMER, HallucinationEntity.createAttributes());
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> e.add(TRADE_BLOCK));
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -146,8 +160,15 @@ public class BodyTradeMod implements ModInitializer {
         title(p, Text.literal("Вы лишились " + part.gen).formatted(Formatting.DARK_RED), rewardText.copy().formatted(Formatting.GRAY));
         p.sendMessage(Text.literal(part.consequence).formatted(Formatting.RED));
 
-        if (p.getRandom().nextDouble() < SIDE_EFFECT_CHANCE) {
-            SideEffect se = SideEffect.values()[p.getRandom().nextInt(SideEffect.values().length)];
+        SideEffect se = null;
+        if (p.getRandom().nextDouble() < SideEffect.RARE_CHANCE) {
+            se = SideEffect.PSYCHOSIS; // редкая болезнь: 0.5% за обмен
+        } else if (p.getRandom().nextDouble() < SIDE_EFFECT_CHANCE) {
+            List<SideEffect> common = new ArrayList<>();
+            for (SideEffect x : SideEffect.values()) if (!x.isRare()) common.add(x);
+            se = common.get(p.getRandom().nextInt(common.size()));
+        }
+        if (se != null) {
             st.setEffect(p.getUuid(), se, server.getOverworld().getTime() + se.seconds * 20L);
             p.sendMessage(Text.literal(se.title + ": " + se.message).formatted(Formatting.YELLOW));
         }

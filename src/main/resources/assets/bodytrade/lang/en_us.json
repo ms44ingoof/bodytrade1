@@ -1,1 +1,5 @@
-{ "block.bodytrade.trade_altar": "Trade Altar" }
+{
+  "block.bodytrade.trade_altar": "Trade Altar",
+  "entity.bodytrade.smiler": "Smiler",
+  "entity.bodytrade.screamer": "Screamer"
+}

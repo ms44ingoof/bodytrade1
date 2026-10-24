@@ -55,7 +55,8 @@ public class InfoScreen extends Screen {
         add("БОЛЕЗНИ И ПОБОЧНЫЕ ЭФФЕКТЫ (после каждого обмена шанс " + (int) (BodyTradeMod.SIDE_EFFECT_CHANCE * 100)
                 + "%, конкретная болезнь выбирается случайно)", 0xFFFF55, 0);
         for (SideEffect s : SideEffect.values()) {
-            add(s.title + " (" + s.seconds + " с): " + s.message, 0xFFFFFF, 0);
+            add(s.title + " (" + s.seconds + " с)" + (s.isRare() ? " [РЕДКАЯ, шанс 0.5% за обмен]" : "") + ": " + s.message,
+                    s.isRare() ? 0xFF5555 : 0xFFFFFF, 0);
         }
         addDrawableChild(ButtonWidget.builder(Text.literal("Назад"), b -> close()).dimensions(width / 2 - 40, height - 24, 80, 20).build());
     }
