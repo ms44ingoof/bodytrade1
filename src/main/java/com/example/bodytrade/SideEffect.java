@@ -99,7 +99,7 @@ public enum SideEffect {
             case PSYCHOSIS -> {
                 if (a % 300 == 0 && r.nextDouble() < 0.75) {
                     if (spawnMonsters(p)) {
-                        fx(p, StatusEffects.DARKNESS, 80, 0);
+                        fx(p, StatusEffects.DARKNESS, 25, 0);
                         play(p, SoundEvents.ENTITY_WARDEN_NEARBY_CLOSER, 0f, 0.8f);
                         bar(p, "Что-то идёт за вами...");
                     }
@@ -128,6 +128,7 @@ public enum SideEffect {
                 e.refreshPositionAndAngles(x, p.getY(), z, r.nextFloat() * 360f, 0f);
                 if (!sw.isSpaceEmpty(e)) continue;
                 e.setOwner(p.getUuid());
+                e.setPersistent();
                 sw.spawnEntity(e);
                 any = true;
                 break;

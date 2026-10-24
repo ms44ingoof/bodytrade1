@@ -21,7 +21,7 @@ public class HallucinationEntity extends HostileEntity {
     public static DefaultAttributeContainer.Builder createAttributes() {
         return HostileEntity.createHostileAttributes()
                 .add(EntityAttributes.GENERIC_MAX_HEALTH, 30.0)
-                .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.30)
+                .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.12)
                 .add(EntityAttributes.GENERIC_ATTACK_DAMAGE, 4.0)
                 .add(EntityAttributes.GENERIC_FOLLOW_RANGE, 40.0);
     }
@@ -32,8 +32,8 @@ public class HallucinationEntity extends HostileEntity {
     @Override
     protected void initGoals() {
         goalSelector.add(1, new SwimGoal(this));
-        goalSelector.add(2, new MeleeAttackGoal(this, 1.1, false));
-        goalSelector.add(3, new WanderAroundFarGoal(this, 0.8));
+        goalSelector.add(2, new MeleeAttackGoal(this, 1.0, false));
+        goalSelector.add(3, new WanderAroundFarGoal(this, 0.6));
         goalSelector.add(4, new LookAtEntityGoal(this, PlayerEntity.class, 16.0f));
         targetSelector.add(1, new ActiveTargetGoal<>(this, PlayerEntity.class, 1, false, false,
                 e -> ownerId != null && e.getUuid().equals(ownerId)));
@@ -44,6 +44,13 @@ public class HallucinationEntity extends HostileEntity {
         super.tick();
         if (!getWorld().isClient && (ownerId == null || age > 1800)) discard();
     }
+
+    /** Не исчезать на мирной сложности и вдали от игрока: живём ровно положенное время. */
+    @Override
+    protected boolean isDisallowedInPeaceful() { return false; }
+
+    @Override
+    public boolean canImmediatelyDespawn(double distanceSquared) { return false; }
 
     @Override
     protected SoundEvent getAmbientSound() { return SoundEvents.ENTITY_ENDERMAN_SCREAM; }
