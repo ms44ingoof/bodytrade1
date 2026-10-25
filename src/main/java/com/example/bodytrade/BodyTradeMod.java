@@ -1,6 +1,12 @@
 package com.example.bodytrade;
 
 import net.fabricmc.api.ModInitializer;
+import net.minecraft.entity.attribute.EntityAttribute;
+import net.minecraft.entity.attribute.EntityAttributeInstance;
+import net.minecraft.entity.attribute.EntityAttributeModifier;
+import net.minecraft.entity.attribute.EntityAttributes;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.math.Direction;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.CommandManager;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
@@ -62,6 +68,7 @@ public class BodyTradeMod implements ModInitializer {
     public static final Identifier MODE_OPEN_PACKET = new Identifier(ID, "mode_open");
     public static final Identifier MODE_PICK_PACKET = new Identifier(ID, "mode_pick");
     public static final Identifier DEV_BUY_PACKET = new Identifier(ID, "dev_buy");
+    public static final Identifier UPG_BUY_PACKET = new Identifier(ID, "upg_buy");
 
     /** Шанс обычной болезни/побочного эффекта после каждой сделки. */
     public static final double SIDE_EFFECT_CHANCE = 0.4;
@@ -74,9 +81,9 @@ public class BodyTradeMod implements ModInitializer {
     private static final Set<Item> SOFT_FOOD = Set.of(Items.MUSHROOM_STEW, Items.BEETROOT_SOUP, Items.RABBIT_STEW,
             Items.SUSPICIOUS_STEW, Items.HONEY_BOTTLE, Items.MELON_SLICE, Items.SWEET_BERRIES, Items.GLOW_BERRIES, Items.PUMPKIN_PIE);
 
-    public static Block TRADE_BLOCK, ADMIN_BLOCK, DEV_BLOCK;
+    public static Block TRADE_BLOCK, ADMIN_BLOCK, DEV_BLOCK, UPGRADE_BLOCK;
     public static Item LIFE_PARTICLE;
-    private static final Map<UUID, Integer> LAST_PROG = new HashMap<>();
+    private static final Map<UUID, Integer> LAST_HASH = new HashMap<>();
     public static EntityType<HallucinationEntity> SMILER, SCREAMER;
     public static EntityType<ProsthetistEntity> PROSTHETIST;
 
@@ -98,6 +105,9 @@ public class BodyTradeMod implements ModInitializer {
         DEV_BLOCK = Registry.register(Registries.BLOCK, new Identifier(ID, "development_block"),
                 new DevBlock(FabricBlockSettings.create().strength(3.0f)));
         Registry.register(Registries.ITEM, new Identifier(ID, "development_block"), new BlockItem(DEV_BLOCK, new FabricItemSettings()));
+        UPGRADE_BLOCK = Registry.register(Registries.BLOCK, new Identifier(ID, "upgrade_block"),
+                new UpgradeBlock(FabricBlockSettings.create().strength(3.0f)));
+        Registry.register(Registries.ITEM, new Identifier(ID, "upgrade_block"), new BlockItem(UPGRADE_BLOCK, new FabricItemSettings()));
         LIFE_PARTICLE = Registry.register(Registries.ITEM, new Identifier(ID, "life_particle"), new Item(new FabricItemSettings()));
 
         SMILER = Registry.register(Registries.ENTITY_TYPE, new Identifier(ID, "smiler"),
@@ -116,7 +126,7 @@ public class BodyTradeMod implements ModInitializer {
         Item egg = Registry.register(Registries.ITEM, new Identifier(ID, "prosthetist_spawn_egg"),
                 new SpawnEggItem(PROSTHETIST, 0x6b7a8f, 0xd4aa3c, new FabricItemSettings()));
 
-        ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> { e.add(TRADE_BLOCK); e.add(ADMIN_BLOCK); e.add(DEV_BLOCK); e.add(LIFE_PARTICLE); e.add(egg); });
+        ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> { e.add(TRADE_BLOCK); e.add(ADMIN_BLOCK); e.add(DEV_BLOCK); e.add(UPGRADE_BLOCK); e.add(LIFE_PARTICLE); e.add(egg); });
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.SPAWN_EGGS).register(e -> e.add(egg));
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -166,6 +176,11 @@ public class BodyTradeMod implements ModInitializer {
         ServerPlayNetworking.registerGlobalReceiver(MODE_PICK_PACKET, (server, player, h, buf, resp) -> {
             String mode = buf.readString();
             server.execute(() -> applyMode(server, player, mode.equals("develop")));
+        });
+        ServerPlayNetworking.registerGlobalReceiver(UPG_BUY_PACKET, (server, player, h, buf, resp) -> {
+            BlockPos pos = buf.readBlockPos();
+            Upgrade u = Upgrade.byId(buf.readString());
+            server.execute(() -> handleUpgBuy(server, player, pos, u));
         });
         ServerPlayNetworking.registerGlobalReceiver(DEV_BUY_PACKET, (server, player, h, buf, resp) -> {
             BlockPos pos = buf.readBlockPos();
@@ -400,16 +415,21 @@ public class BodyTradeMod implements ModInitializer {
         boolean dev = st.isDevelop(p.getUuid());
         buf.writeBoolean(dev);
         if (dev) {
-            int idx = st.taskIndex(p.getUuid());
             List<DevTasks.Task> tasks = DevTasks.tasks();
-            if (idx < tasks.size()) {
-                DevTasks.Task t = tasks.get(idx);
-                int prog = Math.max(0, Math.min(t.need(), DevTasks.progress(p, t) - st.taskBase(p.getUuid())));
-                buf.writeString(t.text()); buf.writeVarInt(prog); buf.writeVarInt(t.need()); buf.writeVarInt(t.reward());
-            } else {
-                buf.writeString(""); buf.writeVarInt(0); buf.writeVarInt(0); buf.writeVarInt(0);
+            int n = tasks.size();
+            int[] base = st.taskBase(p.getUuid(), n), done = st.taskDone(p.getUuid(), n);
+            buf.writeVarInt(n);
+            for (int i = 0; i < n; i++) {
+                DevTasks.Task t = tasks.get(i);
+                boolean d = done[i] == 1;
+                int prog = d ? t.need() : (base[i] < 0 ? 0 : Math.max(0, Math.min(t.need(), (DevTasks.progress(p, t) - base[i]) / t.div())));
+                buf.writeVarInt(prog);
+                buf.writeBoolean(d);
             }
         }
+        int[] lv = st.upgrades(p.getUuid(), Upgrade.values().length);
+        buf.writeVarInt(lv.length);
+        for (int x : lv) buf.writeVarInt(x);
         ServerPlayNetworking.send(p, SYNC_PACKET, buf);
     }
 
@@ -437,12 +457,18 @@ public class BodyTradeMod implements ModInitializer {
         if (develop) {
             st.setDevelop(id, true);
             for (BodyPart bp : DevTasks.PRICES.keySet()) { st.add(id, bp); st.removePros(id, bp); }
-            st.setTask(id, 0, DevTasks.progress(p, DevTasks.tasks().get(0)));
-            LAST_PROG.remove(id);
-            p.getInventory().offerOrDrop(new ItemStack(DEV_BLOCK));
+            List<DevTasks.Task> tasks = DevTasks.tasks();
+            int[] base = st.taskBase(id, tasks.size()), done = st.taskDone(id, tasks.size());
+            for (int i = 0; i < tasks.size(); i++) { base[i] = DevTasks.progress(p, tasks.get(i)); done[i] = 0; }
+            st.markDirty();
+            LAST_HASH.remove(id);
+            // блоки ставятся прямо рядом с игроком (если места нет - попадают в инвентарь)
+            if (!placeNear(p, DEV_BLOCK, 0)) p.getInventory().offerOrDrop(new ItemStack(DEV_BLOCK));
+            if (!placeNear(p, UPGRADE_BLOCK, 1)) p.getInventory().offerOrDrop(new ItemStack(UPGRADE_BLOCK));
             title(p, Text.literal("РазВиВАЙСЯ").formatted(Formatting.GREEN), Text.literal("Вы лишились всех конечностей").formatted(Formatting.GRAY));
-            p.sendMessage(Text.literal("Режим «РазВиВАЙСЯ»: у вас нет рук и ног. Выполняйте задания (список слева сверху), получайте частицы жизни "
-                    + "и покупайте конечности в Блоке развития. Блок выдан вам в инвентарь.").formatted(Formatting.GREEN));
+            p.sendMessage(Text.literal("Режим «РазВиВАЙСЯ»: у вас нет рук и ног. Выполняйте задания в любом порядке (список: кнопка «Задания» в инвентаре), "
+                    + "получайте частицы жизни и покупайте конечности в Блоке развития, а улучшения органов в Блоке апгрейда. Оба блока стоят рядом с вами.")
+                    .formatted(Formatting.GREEN));
         } else {
             st.setDevelop(id, false);
             for (BodyPart bp : DevTasks.PRICES.keySet()) { st.remove(id, bp); st.removePros(id, bp); }
@@ -450,6 +476,28 @@ public class BodyTradeMod implements ModInitializer {
         }
         sync(p);
         broadcastLimbs(server, p);
+    }
+
+    /** Ставит блок рядом с игроком (slot 0 - слева, 1 - справа от направления взгляда). */
+    private static boolean placeNear(ServerPlayerEntity p, Block block, int slot) {
+        if (!(p.getWorld() instanceof ServerWorld w)) return false;
+        Direction f = p.getHorizontalFacing();
+        Direction r = f.rotateYClockwise();
+        BlockPos base = p.getBlockPos();
+        int[] sides = slot == 0 ? new int[]{-1, -2, 0, -3, 1} : new int[]{1, 2, 3, 0, -1};
+        for (int d : new int[]{2, 3, 4}) {
+            for (int sd : sides) {
+                for (int dy : new int[]{0, 1, -1}) {
+                    BlockPos pos = base.offset(f, d).offset(r, sd).up(dy);
+                    BlockPos below = pos.down();
+                    if (w.getBlockState(pos).isAir() && w.getBlockState(pos.up()).isAir() && w.getBlockState(below).isSolidBlock(w, below)) {
+                        w.setBlockState(pos, block.getDefaultState());
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private static void handleDevBuy(MinecraftServer server, ServerPlayerEntity p, BlockPos pos, BodyPart part) {
@@ -472,29 +520,119 @@ public class BodyTradeMod implements ModInitializer {
         broadcastLimbs(server, p);
     }
 
-    /** Раз в секунду проверяет выполнение текущего задания. */
+    /** Раз в секунду проверяет все задания (они выполняются в любом порядке). */
     private static void devTick(ServerPlayerEntity p, BodyState st) {
         UUID id = p.getUuid();
         if (!st.isDevelop(id)) return;
         List<DevTasks.Task> tasks = DevTasks.tasks();
-        int idx = st.taskIndex(id);
-        if (idx >= tasks.size()) return;
-        DevTasks.Task t = tasks.get(idx);
-        int prog = DevTasks.progress(p, t) - st.taskBase(id);
-        if (prog >= t.need()) {
-            p.getInventory().offerOrDrop(new ItemStack(LIFE_PARTICLE, t.reward()));
-            idx++;
-            int base = idx < tasks.size() ? DevTasks.progress(p, tasks.get(idx)) : 0;
-            st.setTask(id, idx, base);
-            LAST_PROG.remove(id);
-            title(p, Text.literal("Задание выполнено").formatted(Formatting.GREEN), Text.literal("Частицы жизни: +" + t.reward()).formatted(Formatting.GRAY));
-            p.sendMessage(Text.literal("Задание «" + t.text() + "» выполнено! Получено частиц жизни: " + t.reward() + ".").formatted(Formatting.GREEN));
-            if (idx < tasks.size()) p.sendMessage(Text.literal("Следующее задание: " + tasks.get(idx).text()).formatted(Formatting.YELLOW));
-            else p.sendMessage(Text.literal("Все задания выполнены!").formatted(Formatting.GOLD));
-            sync(p);
-        } else {
-            Integer last = LAST_PROG.get(id);
-            if (last == null || last != prog) { LAST_PROG.put(id, prog); sync(p); }
+        int n = tasks.size();
+        int[] base = st.taskBase(id, n), done = st.taskDone(id, n);
+        int hash = 1;
+        boolean changed = false;
+        for (int i = 0; i < n; i++) {
+            if (done[i] == 1) { hash = 31 * hash + 1_000_000; continue; }
+            DevTasks.Task t = tasks.get(i);
+            int raw = DevTasks.progress(p, t);
+            if (base[i] < 0) { base[i] = raw; changed = true; }
+            int prog = Math.max(0, (raw - base[i]) / t.div());
+            if (prog >= t.need()) {
+                done[i] = 1;
+                changed = true;
+                p.getInventory().offerOrDrop(new ItemStack(LIFE_PARTICLE, t.reward()));
+                title(p, Text.literal("Задание выполнено").formatted(Formatting.GREEN), Text.literal(t.text() + ": +" + t.reward() + " ч. жизни").formatted(Formatting.GRAY));
+                p.sendMessage(Text.literal("Задание «" + t.text() + "» выполнено! Получено частиц жизни: " + t.reward() + ".").formatted(Formatting.GREEN));
+                prog = t.need();
+            }
+            hash = 31 * hash + prog;
+        }
+        if (changed) st.markDirty();
+        Integer last = LAST_HASH.get(id);
+        if (changed || last == null || last != hash) { LAST_HASH.put(id, hash); sync(p); }
+    }
+
+    // ---------------------------------------------------------------- апгрейды
+    private static final UUID U_HEART = UUID.fromString("5a1d0001-0000-4000-8000-000000000001");
+    private static final UUID U_LEGS = UUID.fromString("5a1d0001-0000-4000-8000-000000000002");
+    private static final UUID U_ARMS = UUID.fromString("5a1d0001-0000-4000-8000-000000000003");
+    private static final UUID U_SKIN = UUID.fromString("5a1d0001-0000-4000-8000-000000000004");
+    private static final UUID U_BONES = UUID.fromString("5a1d0001-0000-4000-8000-000000000005");
+
+    private static void handleUpgBuy(MinecraftServer server, ServerPlayerEntity p, BlockPos pos, Upgrade u) {
+        if (u == null) return;
+        if (!p.getWorld().getBlockState(pos).isOf(UPGRADE_BLOCK) || p.squaredDistanceTo(Vec3d.ofCenter(pos)) > 64) return;
+        BodyState st = BodyState.of(server);
+        int[] lv = st.upgrades(p.getUuid(), Upgrade.values().length);
+        int cur = lv[u.ordinal()];
+        if (cur >= u.max()) return;
+        int cost = u.costs[cur];
+        if (p.getInventory().count(LIFE_PARTICLE) < cost) {
+            p.sendMessage(Text.literal("Не хватает частиц жизни: нужно " + cost + ".").formatted(Formatting.RED));
+            return;
+        }
+        removeItems(p, LIFE_PARTICLE, cost);
+        lv[u.ordinal()] = cur + 1;
+        st.markDirty();
+        title(p, Text.literal("Улучшено: " + u.nom).formatted(Formatting.AQUA), Text.literal("Уровень " + (cur + 1) + " из " + u.max()).formatted(Formatting.GRAY));
+        p.sendMessage(Text.literal(u.nom + ": уровень " + (cur + 1) + ". " + u.desc).formatted(Formatting.AQUA));
+        sync(p);
+    }
+
+    private static void setMod(ServerPlayerEntity p, EntityAttribute attr, UUID uuid, String name, double value, EntityAttributeModifier.Operation op) {
+        EntityAttributeInstance inst = p.getAttributeInstance(attr);
+        if (inst == null) return;
+        EntityAttributeModifier cur = inst.getModifier(uuid);
+        if (cur != null && cur.getValue() == value) return;
+        if (cur != null) inst.removeModifier(uuid);
+        if (value != 0) inst.addTemporaryModifier(new EntityAttributeModifier(uuid, name, value, op));
+    }
+
+    private static void upgradeTick(ServerPlayerEntity p, BodyState st, Set<BodyPart> m) {
+        UUID id = p.getUuid();
+        int[] lv = st.upgrades(id, Upgrade.values().length);
+        boolean any = false;
+        for (int x : lv) if (x > 0) { any = true; break; }
+        if (!any) return;
+        int a = p.age;
+        int stomach = lv[Upgrade.STOMACH.ordinal()], liver = lv[Upgrade.LIVER.ordinal()];
+
+        // желудок: сам подкармливает (без срабатывания "еды" для пищеварительных болезней)
+        if (stomach > 0 && !m.contains(BodyPart.STOMACH) && a % (new int[]{0, 2400, 1600, 1000}[stomach]) == 0) {
+            var hm = p.getHungerManager();
+            if (hm.getFoodLevel() < 20) { hm.add(1, 0.3f); LAST_FOOD.put(id, hm.getFoodLevel()); }
+        }
+        // печень: регенерация
+        if (liver > 0 && !m.contains(BodyPart.LIVER) && a % (new int[]{0, 1200, 700, 400}[liver]) == 0 && p.getHealth() < p.getMaxHealth()) p.heal(1f);
+
+        if (a % 20 != 0) return;
+        int heart = lv[Upgrade.HEART.ordinal()], legsL = lv[Upgrade.LEGS.ordinal()], armsL = lv[Upgrade.ARMS.ordinal()];
+        int skin = lv[Upgrade.SKIN.ordinal()], bones = lv[Upgrade.BONES.ordinal()], eyes = lv[Upgrade.EYES.ordinal()];
+        int kidneys = lv[Upgrade.KIDNEYS.ordinal()], lungs = lv[Upgrade.LUNGS.ordinal()], immune = lv[Upgrade.IMMUNE.ordinal()];
+
+        setMod(p, EntityAttributes.GENERIC_MAX_HEALTH, U_HEART, "bt_heart", 2.0 * heart, EntityAttributeModifier.Operation.ADDITION);
+        boolean legsOk = !(m.contains(BodyPart.LEFT_LEG) && m.contains(BodyPart.RIGHT_LEG));
+        setMod(p, EntityAttributes.GENERIC_MOVEMENT_SPEED, U_LEGS, "bt_legs", legsOk ? 0.08 * legsL : 0, EntityAttributeModifier.Operation.MULTIPLY_BASE);
+        boolean armsOk = !(m.contains(BodyPart.LEFT_ARM) && m.contains(BodyPart.RIGHT_ARM));
+        setMod(p, EntityAttributes.GENERIC_ATTACK_DAMAGE, U_ARMS, "bt_arms", armsOk ? 1.0 * armsL : 0, EntityAttributeModifier.Operation.ADDITION);
+        if (armsOk && armsL > 0) effT(p, StatusEffects.HASTE, 60, armsL - 1);
+        setMod(p, EntityAttributes.GENERIC_ARMOR, U_SKIN, "bt_skin", 2.0 * skin, EntityAttributeModifier.Operation.ADDITION);
+        setMod(p, EntityAttributes.GENERIC_KNOCKBACK_RESISTANCE, U_BONES, "bt_bones", 0.2 * bones, EntityAttributeModifier.Operation.ADDITION);
+
+        boolean eyesOk = !(m.contains(BodyPart.LEFT_EYE) && m.contains(BodyPart.RIGHT_EYE));
+        if (eyes > 0 && eyesOk && (eyes >= 2 || !p.getWorld().isSkyVisible(p.getBlockPos()))) effT(p, StatusEffects.NIGHT_VISION, 260, 0);
+
+        boolean kidneyOk = !(m.contains(BodyPart.LEFT_KIDNEY) && m.contains(BodyPart.RIGHT_KIDNEY));
+        if (kidneys > 0 && kidneyOk) {
+            p.removeStatusEffect(StatusEffects.POISON);
+            if (kidneys >= 2) p.removeStatusEffect(StatusEffects.NAUSEA);
+            if (kidneys >= 3) { p.removeStatusEffect(StatusEffects.HUNGER); p.removeStatusEffect(StatusEffects.WEAKNESS); }
+        }
+        boolean lungOk = !(m.contains(BodyPart.LEFT_LUNG) && m.contains(BodyPart.RIGHT_LUNG));
+        if (lungs > 0 && lungOk && p.isSubmergedIn(FluidTags.WATER)) p.setAir(Math.min(p.getMaxAir(), p.getAir() + 8 * lungs));
+
+        if (immune > 0) {
+            Map<SideEffect, Long> fx = st.effects(id);
+            for (Map.Entry<SideEffect, Long> e : fx.entrySet()) e.setValue(e.getValue() - 20L * immune);
+            if (!fx.isEmpty()) st.markDirty();
         }
     }
 
@@ -563,6 +701,7 @@ public class BodyTradeMod implements ModInitializer {
         Set<BodyPart> m = st.functional(id);   // без частей, заменённых протезом
         Set<BodyPart> pr = st.pros(id);
         if (p.age % 20 == 0) devTick(p, st);
+        upgradeTick(p, st, m);
 
         // отслеживаем приём пищи
         int food = p.getHungerManager().getFoodLevel();

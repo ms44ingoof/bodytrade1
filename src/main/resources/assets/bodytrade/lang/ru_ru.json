@@ -6,5 +6,6 @@
   "item.bodytrade.prosthetist_spawn_egg": "Вызов протезиста",
   "entity.bodytrade.prosthetist": "Протезист",
   "block.bodytrade.development_block": "Блок развития",
-  "item.bodytrade.life_particle": "Частица жизни"
+  "item.bodytrade.life_particle": "Частица жизни",
+  "block.bodytrade.upgrade_block": "Блок апгрейда"
 }

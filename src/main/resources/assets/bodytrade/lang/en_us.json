@@ -6,5 +6,6 @@
   "item.bodytrade.prosthetist_spawn_egg": "Prosthetist Spawn Egg",
   "entity.bodytrade.prosthetist": "Prosthetist",
   "block.bodytrade.development_block": "Development Block",
-  "item.bodytrade.life_particle": "Life Particle"
+  "item.bodytrade.life_particle": "Life Particle",
+  "block.bodytrade.upgrade_block": "Upgrade Block"
 }

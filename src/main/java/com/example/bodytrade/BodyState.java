@@ -6,14 +6,16 @@ import net.minecraft.world.PersistentState;
 
 import java.util.*;
 
-/** Сохраняемое состояние: отсутствующие части тела, активные болезни, кому выдан алтарь. */
+/** Сохраняемое состояние: части тела, протезы, болезни, режим развития, задания, апгрейды, выдача алтаря. */
 public class BodyState extends PersistentState {
     private final Map<UUID, EnumSet<BodyPart>> missing = new HashMap<>();
     private final Map<UUID, EnumMap<SideEffect, Long>> effects = new HashMap<>();
     private final Map<UUID, EnumSet<BodyPart>> pros = new HashMap<>();
     private final Set<UUID> gaveBlock = new HashSet<>();
     private final Set<UUID> develop = new HashSet<>();
-    private final Map<UUID, int[]> tasks = new HashMap<>(); // [номер задания, стартовый прогресс]
+    private final Map<UUID, int[]> taskBase = new HashMap<>();   // стартовое значение счётчика каждого задания (-1 - ещё не задано)
+    private final Map<UUID, int[]> taskDone = new HashMap<>();   // 1 - задание выполнено
+    private final Map<UUID, int[]> upgrades = new HashMap<>();   // уровни апгрейдов (индекс = Upgrade.ordinal())
 
     public static BodyState of(MinecraftServer server) {
         return server.getOverworld().getPersistentStateManager().getOrCreate(BodyState::fromNbt, BodyState::new, "bodytrade");
@@ -23,6 +25,27 @@ public class BodyState extends PersistentState {
     public void add(UUID id, BodyPart p) { get(id).add(p); markDirty(); }
     public void remove(UUID id, BodyPart p) { get(id).remove(p); markDirty(); }
     public void clear(UUID id) { get(id).clear(); pros(id).clear(); effects(id).clear(); markDirty(); }
+    public boolean markGaveBlock(UUID id) { if (gaveBlock.add(id)) { markDirty(); return true; } return false; }
+
+    public boolean isDevelop(UUID id) { return develop.contains(id); }
+    public void setDevelop(UUID id, boolean v) { if (v) develop.add(id); else develop.remove(id); markDirty(); }
+
+    private static int[] sized(Map<UUID, int[]> map, UUID id, int n, int fill) {
+        int[] a = map.get(id);
+        if (a == null || a.length != n) {
+            int[] b = new int[n];
+            Arrays.fill(b, fill);
+            if (a != null) System.arraycopy(a, 0, b, 0, Math.min(a.length, n));
+            map.put(id, b);
+            a = b;
+        }
+        return a;
+    }
+    /** Стартовые значения счётчиков заданий (-1 - не задано). Массив можно менять, потом вызвать markDirty(). */
+    public int[] taskBase(UUID id, int n) { return sized(taskBase, id, n, -1); }
+    public int[] taskDone(UUID id, int n) { return sized(taskDone, id, n, 0); }
+    public int[] upgrades(UUID id, int n) { return sized(upgrades, id, n, 0); }
+
     /** Установленные протезы (подмножество отсутствующих частей). */
     public Set<BodyPart> pros(UUID id) { return pros.computeIfAbsent(id, k -> EnumSet.noneOf(BodyPart.class)); }
     public void addPros(UUID id, BodyPart p) { pros(id).add(p); markDirty(); }
@@ -33,33 +56,30 @@ public class BodyState extends PersistentState {
         s.addAll(get(id)); s.removeAll(pros(id));
         return s;
     }
-    public boolean isDevelop(UUID id) { return develop.contains(id); }
-    public void setDevelop(UUID id, boolean v) { if (v) develop.add(id); else develop.remove(id); markDirty(); }
-    public int taskIndex(UUID id) { int[] t = tasks.get(id); return t == null ? 0 : t[0]; }
-    public int taskBase(UUID id) { int[] t = tasks.get(id); return t == null ? 0 : t[1]; }
-    public void setTask(UUID id, int idx, int base) { tasks.put(id, new int[]{idx, base}); markDirty(); }
-    public boolean markGaveBlock(UUID id) { if (gaveBlock.add(id)) { markDirty(); return true; } return false; }
 
     /** Болезни: эффект -> игровое время (тики), когда он закончится. */
     public Map<SideEffect, Long> effects(UUID id) { return effects.computeIfAbsent(id, k -> new EnumMap<>(SideEffect.class)); }
     public void setEffect(UUID id, SideEffect e, long endTime) { effects(id).put(e, endTime); markDirty(); }
     public void prune(UUID id, long now) { if (effects(id).values().removeIf(t -> t <= now)) markDirty(); }
 
+    private static NbtList idList(Set<BodyPart> set) {
+        NbtList l = new NbtList();
+        for (BodyPart p : set) l.add(NbtString.of(p.id));
+        return l;
+    }
+    private static EnumSet<BodyPart> readSet(NbtList l) {
+        EnumSet<BodyPart> set = EnumSet.noneOf(BodyPart.class);
+        for (int i = 0; i < l.size(); i++) { BodyPart p = BodyPart.byId(l.getString(i)); if (p != null) set.add(p); }
+        return set;
+    }
+
     @Override
     public NbtCompound writeNbt(NbtCompound nbt) {
         NbtCompound players = new NbtCompound();
-        missing.forEach((id, set) -> {
-            NbtList l = new NbtList();
-            for (BodyPart p : set) l.add(NbtString.of(p.id));
-            players.put(id.toString(), l);
-        });
+        missing.forEach((id, set) -> players.put(id.toString(), idList(set)));
         nbt.put("players", players);
         NbtCompound pr = new NbtCompound();
-        pros.forEach((id, set) -> {
-            NbtList l = new NbtList();
-            for (BodyPart p : set) l.add(NbtString.of(p.id));
-            pr.put(id.toString(), l);
-        });
+        pros.forEach((id, set) -> pr.put(id.toString(), idList(set)));
         nbt.put("pros", pr);
         NbtCompound fx = new NbtCompound();
         effects.forEach((id, map) -> {
@@ -74,28 +94,22 @@ public class BodyState extends PersistentState {
         NbtList dv = new NbtList();
         for (UUID id : develop) dv.add(NbtString.of(id.toString()));
         nbt.put("develop", dv);
-        NbtCompound tk = new NbtCompound();
-        tasks.forEach((id, t) -> { NbtCompound c = new NbtCompound(); c.putInt("i", t[0]); c.putInt("b", t[1]); tk.put(id.toString(), c); });
-        nbt.put("tasks", tk);
+        NbtCompound tb = new NbtCompound(), td = new NbtCompound(), up = new NbtCompound();
+        taskBase.forEach((id, a) -> tb.putIntArray(id.toString(), a));
+        taskDone.forEach((id, a) -> td.putIntArray(id.toString(), a));
+        upgrades.forEach((id, a) -> up.putIntArray(id.toString(), a));
+        nbt.put("taskBase", tb);
+        nbt.put("taskDone", td);
+        nbt.put("upgrades", up);
         return nbt;
     }
 
     public static BodyState fromNbt(NbtCompound nbt) {
         BodyState s = new BodyState();
         NbtCompound players = nbt.getCompound("players");
-        for (String key : players.getKeys()) {
-            EnumSet<BodyPart> set = EnumSet.noneOf(BodyPart.class);
-            NbtList l = players.getList(key, NbtElement.STRING_TYPE);
-            for (int i = 0; i < l.size(); i++) { BodyPart p = BodyPart.byId(l.getString(i)); if (p != null) set.add(p); }
-            s.missing.put(UUID.fromString(key), set);
-        }
+        for (String key : players.getKeys()) s.missing.put(UUID.fromString(key), readSet(players.getList(key, NbtElement.STRING_TYPE)));
         NbtCompound pr = nbt.getCompound("pros");
-        for (String key : pr.getKeys()) {
-            EnumSet<BodyPart> set = EnumSet.noneOf(BodyPart.class);
-            NbtList l = pr.getList(key, NbtElement.STRING_TYPE);
-            for (int i = 0; i < l.size(); i++) { BodyPart p = BodyPart.byId(l.getString(i)); if (p != null) set.add(p); }
-            s.pros.put(UUID.fromString(key), set);
-        }
+        for (String key : pr.getKeys()) s.pros.put(UUID.fromString(key), readSet(pr.getList(key, NbtElement.STRING_TYPE)));
         NbtCompound fx = nbt.getCompound("effects");
         for (String key : fx.getKeys()) {
             NbtCompound c = fx.getCompound(key);
@@ -107,8 +121,10 @@ public class BodyState extends PersistentState {
         for (int i = 0; i < g.size(); i++) s.gaveBlock.add(UUID.fromString(g.getString(i)));
         NbtList dv = nbt.getList("develop", NbtElement.STRING_TYPE);
         for (int i = 0; i < dv.size(); i++) s.develop.add(UUID.fromString(dv.getString(i)));
-        NbtCompound tk = nbt.getCompound("tasks");
-        for (String key : tk.getKeys()) { NbtCompound c = tk.getCompound(key); s.tasks.put(UUID.fromString(key), new int[]{c.getInt("i"), c.getInt("b")}); }
+        NbtCompound tb = nbt.getCompound("taskBase"), td = nbt.getCompound("taskDone"), up = nbt.getCompound("upgrades");
+        for (String key : tb.getKeys()) s.taskBase.put(UUID.fromString(key), tb.getIntArray(key));
+        for (String key : td.getKeys()) s.taskDone.put(UUID.fromString(key), td.getIntArray(key));
+        for (String key : up.getKeys()) s.upgrades.put(UUID.fromString(key), up.getIntArray(key));
         return s;
     }
 }

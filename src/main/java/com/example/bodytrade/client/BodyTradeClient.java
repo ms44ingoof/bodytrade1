@@ -36,8 +36,12 @@ public class BodyTradeClient implements ClientModInitializer {
     public static final Map<UUID, Integer> PROS = new HashMap<>();
     /** Режим РазВиВАЙСЯ: текущее задание. */
     public static boolean develop;
-    public static String taskText = "";
-    public static int taskProg, taskNeed, taskReward;
+    public static int[] taskProg = new int[0];
+    public static boolean[] taskDone = new boolean[0];
+    /** Уровни апгрейдов (индекс = Upgrade.ordinal()). */
+    public static int[] upgrades = new int[0];
+
+    public static int tasksDoneCount() { int c = 0; for (boolean d : taskDone) if (d) c++; return c; }
 
     /** Деменция: все названия в игре превращаются в иероглифы. */
     public static boolean dementiaActive() {
@@ -87,6 +91,7 @@ public class BodyTradeClient implements ClientModInitializer {
         });
 
         AdminBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new AdminScreen(pos));
+        com.example.bodytrade.UpgradeBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new UpgradeScreen(pos));
         com.example.bodytrade.DevBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new DevScreen(pos));
         TradeBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new TradeScreen(pos));
 
@@ -101,11 +106,18 @@ public class BodyTradeClient implements ClientModInitializer {
             Map<String, Integer> eff = new LinkedHashMap<>();
             for (int i = 0; i < k; i++) eff.put(buf.readString(), buf.readVarInt());
             boolean dev = buf.readBoolean();
-            final String tt; final int tp, tn, tr;
-            if (dev) { tt = buf.readString(); tp = buf.readVarInt(); tn = buf.readVarInt(); tr = buf.readVarInt(); }
-            else { tt = ""; tp = 0; tn = 0; tr = 0; }
+            int[] tp = new int[0]; boolean[] td = new boolean[0];
+            if (dev) {
+                int n = buf.readVarInt();
+                tp = new int[n]; td = new boolean[n];
+                for (int i = 0; i < n; i++) { tp[i] = buf.readVarInt(); td[i] = buf.readBoolean(); }
+            }
+            int nu = buf.readVarInt();
+            int[] up = new int[nu];
+            for (int i = 0; i < nu; i++) up[i] = buf.readVarInt();
+            final int[] ftp = tp; final boolean[] ftd = td;
             client.execute(() -> {
-                develop = dev; taskText = tt; taskProg = tp; taskNeed = tn; taskReward = tr;
+                develop = dev; taskProg = ftp; taskDone = ftd; upgrades = up;
                 MISSING.clear(); MISSING.addAll(set);
                 PROSTHETIC.clear(); PROSTHETIC.addAll(pset);
                 EFFECTS.clear();
@@ -115,6 +127,8 @@ public class BodyTradeClient implements ClientModInitializer {
                 else if (client.currentScreen instanceof AdminScreen a) a.refresh();
                 else if (client.currentScreen instanceof ShopScreen sh) sh.refresh();
                 else if (client.currentScreen instanceof DevScreen d) d.refresh();
+                else if (client.currentScreen instanceof UpgradeScreen u) u.refresh();
+                else if (client.currentScreen instanceof TasksScreen ts) ts.refresh();
             });
         });
 
@@ -137,7 +151,7 @@ public class BodyTradeClient implements ClientModInitializer {
         });
 
         ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> {
-            MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false;
+            MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false; upgrades = new int[0];
         });
 
         // Без ступней - скольжение, как по льду
@@ -174,14 +188,18 @@ public class BodyTradeClient implements ClientModInitializer {
                     ctx.drawTextWithShadow(mc.textRenderer, label, 5, y, PROSTHETIC.contains(p) ? 0x77DDFF : 0xFFFFFF); y += 10; shown++;
                 }
             }
-            if (develop) {
+            if (develop && taskProg.length > 0) {
                 y += 3;
-                ctx.drawTextWithShadow(mc.textRenderer, "РазВиВАЙСЯ", 5, y, 0x55FF55); y += 10;
-                if (taskNeed > 0) {
-                    ctx.drawTextWithShadow(mc.textRenderer, "Задание: " + taskText + " (" + taskProg + "/" + taskNeed + ")", 5, y, 0xFFFFFF); y += 10;
-                    ctx.drawTextWithShadow(mc.textRenderer, "Награда: частиц жизни - " + taskReward, 5, y, 0xAAAAAA); y += 10;
-                } else {
-                    ctx.drawTextWithShadow(mc.textRenderer, "Все задания выполнены!", 5, y, 0xFFD700); y += 10;
+                int total = com.example.bodytrade.DevTasks.tasks().size();
+                ctx.drawTextWithShadow(mc.textRenderer, "РазВиВАЙСЯ: заданий " + tasksDoneCount() + "/" + total, 5, y, 0x55FF55); y += 10;
+                // три ближайших к выполнению задания
+                var tasks = com.example.bodytrade.DevTasks.tasks();
+                List<Integer> open = new ArrayList<>();
+                for (int i = 0; i < tasks.size() && i < taskProg.length; i++) if (!taskDone[i]) open.add(i);
+                open.sort((x, z) -> Double.compare((double) taskProg[z] / tasks.get(z).need(), (double) taskProg[x] / tasks.get(x).need()));
+                for (int k = 0; k < Math.min(3, open.size()); k++) {
+                    int i = open.get(k);
+                    ctx.drawTextWithShadow(mc.textRenderer, "- " + tasks.get(i).text() + " (" + taskProg[i] + "/" + tasks.get(i).need() + ")", 5, y, 0xFFFFFF); y += 10;
                 }
             }
             if (!EFFECTS.isEmpty()) {
@@ -199,6 +217,8 @@ public class BodyTradeClient implements ClientModInitializer {
             if (screen instanceof InventoryScreen) {
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Болезни и части тела"),
                         b -> client.setScreen(new InfoScreen(screen))).dimensions(sw / 2 + 92, sh / 2 - 80, 110, 20).build());
+                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Задания"),
+                        b -> client.setScreen(new TasksScreen(screen))).dimensions(sw / 2 + 92, sh / 2 - 56, 110, 20).build());
             }
         });
     }
