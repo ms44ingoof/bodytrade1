@@ -2,5 +2,7 @@
   "block.bodytrade.trade_altar": "Trade Altar",
   "entity.bodytrade.smiler": "Smiler",
   "entity.bodytrade.screamer": "Screamer",
-  "block.bodytrade.admin_altar": "Admin Altar"
+  "block.bodytrade.admin_altar": "Admin Altar",
+  "item.bodytrade.prosthetist_spawn_egg": "Prosthetist Spawn Egg",
+  "entity.bodytrade.prosthetist": "Prosthetist"
 }

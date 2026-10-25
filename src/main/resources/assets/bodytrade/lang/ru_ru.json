@@ -2,5 +2,7 @@
   "block.bodytrade.trade_altar": "Алтарь обмена",
   "entity.bodytrade.smiler": "Улыбака",
   "entity.bodytrade.screamer": "Крикун",
-  "block.bodytrade.admin_altar": "Админ-алтарь"
+  "block.bodytrade.admin_altar": "Админ-алтарь",
+  "item.bodytrade.prosthetist_spawn_egg": "Вызов протезиста",
+  "entity.bodytrade.prosthetist": "Протезист"
 }

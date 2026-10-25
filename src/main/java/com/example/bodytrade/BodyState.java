@@ -10,6 +10,7 @@ import java.util.*;
 public class BodyState extends PersistentState {
     private final Map<UUID, EnumSet<BodyPart>> missing = new HashMap<>();
     private final Map<UUID, EnumMap<SideEffect, Long>> effects = new HashMap<>();
+    private final Map<UUID, EnumSet<BodyPart>> pros = new HashMap<>();
     private final Set<UUID> gaveBlock = new HashSet<>();
 
     public static BodyState of(MinecraftServer server) {
@@ -19,7 +20,17 @@ public class BodyState extends PersistentState {
     public Set<BodyPart> get(UUID id) { return missing.computeIfAbsent(id, k -> EnumSet.noneOf(BodyPart.class)); }
     public void add(UUID id, BodyPart p) { get(id).add(p); markDirty(); }
     public void remove(UUID id, BodyPart p) { get(id).remove(p); markDirty(); }
-    public void clear(UUID id) { get(id).clear(); effects(id).clear(); markDirty(); }
+    public void clear(UUID id) { get(id).clear(); pros(id).clear(); effects(id).clear(); markDirty(); }
+    /** Установленные протезы (подмножество отсутствующих частей). */
+    public Set<BodyPart> pros(UUID id) { return pros.computeIfAbsent(id, k -> EnumSet.noneOf(BodyPart.class)); }
+    public void addPros(UUID id, BodyPart p) { pros(id).add(p); markDirty(); }
+    public void removePros(UUID id, BodyPart p) { pros(id).remove(p); markDirty(); }
+    /** Части, отсутствие которых реально влияет на игрока (без тех, что заменены протезом). */
+    public Set<BodyPart> functional(UUID id) {
+        EnumSet<BodyPart> s = EnumSet.noneOf(BodyPart.class);
+        s.addAll(get(id)); s.removeAll(pros(id));
+        return s;
+    }
     public boolean markGaveBlock(UUID id) { if (gaveBlock.add(id)) { markDirty(); return true; } return false; }
 
     /** Болезни: эффект -> игровое время (тики), когда он закончится. */
@@ -36,6 +47,13 @@ public class BodyState extends PersistentState {
             players.put(id.toString(), l);
         });
         nbt.put("players", players);
+        NbtCompound pr = new NbtCompound();
+        pros.forEach((id, set) -> {
+            NbtList l = new NbtList();
+            for (BodyPart p : set) l.add(NbtString.of(p.id));
+            pr.put(id.toString(), l);
+        });
+        nbt.put("pros", pr);
         NbtCompound fx = new NbtCompound();
         effects.forEach((id, map) -> {
             NbtCompound c = new NbtCompound();
@@ -57,6 +75,13 @@ public class BodyState extends PersistentState {
             NbtList l = players.getList(key, NbtElement.STRING_TYPE);
             for (int i = 0; i < l.size(); i++) { BodyPart p = BodyPart.byId(l.getString(i)); if (p != null) set.add(p); }
             s.missing.put(UUID.fromString(key), set);
+        }
+        NbtCompound pr = nbt.getCompound("pros");
+        for (String key : pr.getKeys()) {
+            EnumSet<BodyPart> set = EnumSet.noneOf(BodyPart.class);
+            NbtList l = pr.getList(key, NbtElement.STRING_TYPE);
+            for (int i = 0; i < l.size(); i++) { BodyPart p = BodyPart.byId(l.getString(i)); if (p != null) set.add(p); }
+            s.pros.put(UUID.fromString(key), set);
         }
         NbtCompound fx = nbt.getCompound("effects");
         for (String key : fx.getKeys()) {

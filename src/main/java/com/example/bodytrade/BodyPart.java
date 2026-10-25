@@ -92,18 +92,25 @@ public enum BodyPart {
         this.tier = tier; this.consequence = consequence;
     }
 
+    /** Цена протеза в алмазах (0 - протеза для этой части нет). */
+    public int prosthesisPrice() {
+        return switch (this) { case LEFT_ARM, RIGHT_ARM -> 3; case LEFT_LEG, RIGHT_LEG -> 4; default -> 0; };
+    }
+
     public static BodyPart byId(String id) {
         for (BodyPart p : values()) if (p.id.equals(id)) return p;
         return null;
     }
 
-    /** Битовая маска пропавших конечностей для отрисовки: 1 лев.рука, 2 прав.рука, 4 лев.нога, 8 прав.нога. */
+    /** Битовая маска пропавших конечностей для отрисовки: 1 лев.рука, 2 прав.рука, 4 лев.нога, 8 прав.нога, 16/32 ступни. */
     public static int limbMask(Set<BodyPart> m) {
         int x = 0;
         if (m.contains(LEFT_ARM)) x |= 1;
         if (m.contains(RIGHT_ARM)) x |= 2;
         if (m.contains(LEFT_LEG)) x |= 4;
         if (m.contains(RIGHT_LEG)) x |= 8;
+        if (m.contains(LEFT_FOOT)) x |= 16;
+        if (m.contains(RIGHT_FOOT)) x |= 32;
         return x;
     }
 

@@ -2,6 +2,6 @@
   "required": true,
   "package": "com.example.bodytrade.mixin",
   "compatibilityLevel": "JAVA_17",
-  "client": ["SoundSystemMixin", "PlayerEntityModelMixin", "KeyboardInputMixin"],
+  "client": ["SoundSystemMixin", "PlayerEntityModelMixin", "KeyboardInputMixin", "TranslationStorageMixin"],
   "injectors": { "defaultRequire": 1 }
 }

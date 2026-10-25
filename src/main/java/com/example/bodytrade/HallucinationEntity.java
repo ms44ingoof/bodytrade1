@@ -21,8 +21,8 @@ public class HallucinationEntity extends HostileEntity {
     public static DefaultAttributeContainer.Builder createAttributes() {
         return HostileEntity.createHostileAttributes()
                 .add(EntityAttributes.GENERIC_MAX_HEALTH, 30.0)
-                .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.17)
-                .add(EntityAttributes.GENERIC_ATTACK_DAMAGE, 6.0)
+                .add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.5)
+                .add(EntityAttributes.GENERIC_ATTACK_DAMAGE, 3.0)
                 .add(EntityAttributes.GENERIC_FOLLOW_RANGE, 40.0);
     }
 
