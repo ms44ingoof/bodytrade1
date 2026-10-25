@@ -47,10 +47,14 @@ public abstract class FancyScreen extends Screen {
     public void render(DrawContext ctx, int mx, int my, float delta) {
         drawBackdrop(ctx);
         drawPanel(ctx);
-        super.render(ctx, mx, my, delta); // кнопки Minecraft (будут закрашены нашими)
-        for (ButtonWidget b : fancy) drawFancyButton(ctx, b, mx, my);
-        ctx.drawCenteredTextWithShadow(textRenderer, title, width / 2, py + 9, 0xFFFFFFFF);
-        drawContent(ctx, mx, my, delta);
+         super.render(ctx, mx, my, delta); // кнопки Minecraft (будут закрашены нашими)
+   // текст обычных кнопок рисуется чуть "ближе" к экрану, поэтому всё наше поднимаем выше него по оси Z
+   ctx.getMatrices().push();
+   ctx.getMatrices().translate(0.0, 0.0, 5.0);
+   for (ButtonWidget b : fancy) drawFancyButton(ctx, b, mx, my);
+   ctx.drawCenteredTextWithShadow(textRenderer, title, width / 2, py + 9, 0xFFFFFFFF);
+   drawContent(ctx, mx, my, delta);
+   ctx.getMatrices().pop();
     }
 
     protected void drawBackdrop(DrawContext c) {
