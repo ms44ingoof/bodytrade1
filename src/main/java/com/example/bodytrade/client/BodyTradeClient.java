@@ -34,6 +34,10 @@ public class BodyTradeClient implements ClientModInitializer {
     public static final Map<UUID, Integer> LIMBS = new HashMap<>();
     /** Маска установленных протезов у всех игроков. */
     public static final Map<UUID, Integer> PROS = new HashMap<>();
+    /** Режим РазВиВАЙСЯ: текущее задание. */
+    public static boolean develop;
+    public static String taskText = "";
+    public static int taskProg, taskNeed, taskReward;
 
     /** Деменция: все названия в игре превращаются в иероглифы. */
     public static boolean dementiaActive() {
@@ -41,29 +45,31 @@ public class BodyTradeClient implements ClientModInitializer {
         return t != null && t > System.currentTimeMillis();
     }
 
-    public static String scramble(String s) {
+    private static final String GLYPHS = "ЖЩЪЫЭЮЯѦѪѬѮѰѲΞΨΩΣΦΔΛØÞÐßŊŦĦÆŒЉЊЋЏҨӜӠ";
+
+    private static int glyph(int cp, int index, long tick) {
+        long h = cp * 31L + index * 17L + tick * 2654435761L;
+        h ^= (h >>> 13); h *= 0x9E3779B1L; h ^= (h >>> 15);
+        return GLYPHS.charAt((int) ((h & 0x7fffffffL) % GLYPHS.length()));
+    }
+
+    /** Деменция: буквы постоянно меняются на нечитаемые (применяется при отрисовке текста). */
+    public static String scrambleLive(String s) {
         if (s == null) return null;
-        StringBuilder sb = new StringBuilder();
-        int i = 0;
-        while (i < s.length()) {
+        long tick = System.currentTimeMillis() / 90;
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (c == '%') { // не трогаем подстановки вида %s, %1$s, %d
-                int j = i + 1;
-                while (j < s.length() && (Character.isDigit(s.charAt(j)) || s.charAt(j) == '$')) j++;
-                if (j < s.length()) j++;
-                sb.append(s, i, j);
-                i = j;
-                continue;
-            }
-            if (Character.isLetter(c)) {
-                int h = Math.abs((c * 31 + 7) * 2654435);
-                sb.append((char) (0x4E00 + h % 0x1F00));
-            } else {
-                sb.append(c);
-            }
-            i++;
+            if (c == '\u00a7') { sb.append(c); if (i + 1 < s.length()) sb.append(s.charAt(++i)); continue; } // коды форматирования
+            sb.append(Character.isLetter(c) ? (char) glyph(c, i, tick) : c);
         }
         return sb.toString();
+    }
+
+    public static net.minecraft.text.OrderedText scrambleOrdered(net.minecraft.text.OrderedText t) {
+        if (t == null) return null;
+        long tick = System.currentTimeMillis() / 90;
+        return visitor -> t.accept((index, style, cp) -> visitor.accept(index, style, Character.isLetter(cp) ? glyph(cp, index, tick) : cp));
     }
 
     @Override
@@ -81,6 +87,7 @@ public class BodyTradeClient implements ClientModInitializer {
         });
 
         AdminBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new AdminScreen(pos));
+        com.example.bodytrade.DevBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new DevScreen(pos));
         TradeBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new TradeScreen(pos));
 
         ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.SYNC_PACKET, (client, handler, buf, sender) -> {
@@ -93,7 +100,12 @@ public class BodyTradeClient implements ClientModInitializer {
             int k = buf.readVarInt();
             Map<String, Integer> eff = new LinkedHashMap<>();
             for (int i = 0; i < k; i++) eff.put(buf.readString(), buf.readVarInt());
+            boolean dev = buf.readBoolean();
+            final String tt; final int tp, tn, tr;
+            if (dev) { tt = buf.readString(); tp = buf.readVarInt(); tn = buf.readVarInt(); tr = buf.readVarInt(); }
+            else { tt = ""; tp = 0; tn = 0; tr = 0; }
             client.execute(() -> {
+                develop = dev; taskText = tt; taskProg = tp; taskNeed = tn; taskReward = tr;
                 MISSING.clear(); MISSING.addAll(set);
                 PROSTHETIC.clear(); PROSTHETIC.addAll(pset);
                 EFFECTS.clear();
@@ -102,6 +114,7 @@ public class BodyTradeClient implements ClientModInitializer {
                 if (client.currentScreen instanceof TradeScreen s) s.refresh();
                 else if (client.currentScreen instanceof AdminScreen a) a.refresh();
                 else if (client.currentScreen instanceof ShopScreen sh) sh.refresh();
+                else if (client.currentScreen instanceof DevScreen d) d.refresh();
             });
         });
 
@@ -115,13 +128,16 @@ public class BodyTradeClient implements ClientModInitializer {
             });
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.MODE_OPEN_PACKET, (client, handler, buf, sender) ->
+                client.execute(() -> client.setScreen(new ModeScreen())));
+
         ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.SHOP_PACKET, (client, handler, buf, sender) -> {
             int entityId = buf.readVarInt();
             client.execute(() -> client.setScreen(new ShopScreen(entityId)));
         });
 
         ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> {
-            MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear();
+            MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false;
         });
 
         // Без ступней - скольжение, как по льду
@@ -156,6 +172,16 @@ public class BodyTradeClient implements ClientModInitializer {
                     if (shown >= 14) { ctx.drawTextWithShadow(mc.textRenderer, "...и ещё " + (MISSING.size() - shown), 5, y, 0xAAAAAA); y += 10; break; }
                     String label = "- " + p.nom + (PROSTHETIC.contains(p) ? " (протез)" : "");
                     ctx.drawTextWithShadow(mc.textRenderer, label, 5, y, PROSTHETIC.contains(p) ? 0x77DDFF : 0xFFFFFF); y += 10; shown++;
+                }
+            }
+            if (develop) {
+                y += 3;
+                ctx.drawTextWithShadow(mc.textRenderer, "РазВиВАЙСЯ", 5, y, 0x55FF55); y += 10;
+                if (taskNeed > 0) {
+                    ctx.drawTextWithShadow(mc.textRenderer, "Задание: " + taskText + " (" + taskProg + "/" + taskNeed + ")", 5, y, 0xFFFFFF); y += 10;
+                    ctx.drawTextWithShadow(mc.textRenderer, "Награда: частиц жизни - " + taskReward, 5, y, 0xAAAAAA); y += 10;
+                } else {
+                    ctx.drawTextWithShadow(mc.textRenderer, "Все задания выполнены!", 5, y, 0xFFD700); y += 10;
                 }
             }
             if (!EFFECTS.isEmpty()) {

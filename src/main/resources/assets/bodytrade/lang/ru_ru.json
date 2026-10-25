@@ -4,5 +4,7 @@
   "entity.bodytrade.screamer": "Крикун",
   "block.bodytrade.admin_altar": "Админ-алтарь",
   "item.bodytrade.prosthetist_spawn_egg": "Вызов протезиста",
-  "entity.bodytrade.prosthetist": "Протезист"
+  "entity.bodytrade.prosthetist": "Протезист",
+  "block.bodytrade.development_block": "Блок развития",
+  "item.bodytrade.life_particle": "Частица жизни"
 }

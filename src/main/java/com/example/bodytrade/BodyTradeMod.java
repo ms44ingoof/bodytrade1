@@ -1,6 +1,8 @@
 package com.example.bodytrade;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.server.command.CommandManager;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
@@ -57,6 +59,9 @@ public class BodyTradeMod implements ModInitializer {
     public static final Identifier ADMIN_PACKET = new Identifier(ID, "admin");
     public static final Identifier SHOP_PACKET = new Identifier(ID, "shop");
     public static final Identifier BUY_PACKET = new Identifier(ID, "buy");
+    public static final Identifier MODE_OPEN_PACKET = new Identifier(ID, "mode_open");
+    public static final Identifier MODE_PICK_PACKET = new Identifier(ID, "mode_pick");
+    public static final Identifier DEV_BUY_PACKET = new Identifier(ID, "dev_buy");
 
     /** Шанс обычной болезни/побочного эффекта после каждой сделки. */
     public static final double SIDE_EFFECT_CHANCE = 0.4;
@@ -69,7 +74,9 @@ public class BodyTradeMod implements ModInitializer {
     private static final Set<Item> SOFT_FOOD = Set.of(Items.MUSHROOM_STEW, Items.BEETROOT_SOUP, Items.RABBIT_STEW,
             Items.SUSPICIOUS_STEW, Items.HONEY_BOTTLE, Items.MELON_SLICE, Items.SWEET_BERRIES, Items.GLOW_BERRIES, Items.PUMPKIN_PIE);
 
-    public static Block TRADE_BLOCK, ADMIN_BLOCK;
+    public static Block TRADE_BLOCK, ADMIN_BLOCK, DEV_BLOCK;
+    public static Item LIFE_PARTICLE;
+    private static final Map<UUID, Integer> LAST_PROG = new HashMap<>();
     public static EntityType<HallucinationEntity> SMILER, SCREAMER;
     public static EntityType<ProsthetistEntity> PROSTHETIST;
 
@@ -88,6 +95,11 @@ public class BodyTradeMod implements ModInitializer {
                 new AdminBlock(FabricBlockSettings.create().strength(3.0f)));
         Registry.register(Registries.ITEM, new Identifier(ID, "admin_altar"), new BlockItem(ADMIN_BLOCK, new FabricItemSettings()));
 
+        DEV_BLOCK = Registry.register(Registries.BLOCK, new Identifier(ID, "development_block"),
+                new DevBlock(FabricBlockSettings.create().strength(3.0f)));
+        Registry.register(Registries.ITEM, new Identifier(ID, "development_block"), new BlockItem(DEV_BLOCK, new FabricItemSettings()));
+        LIFE_PARTICLE = Registry.register(Registries.ITEM, new Identifier(ID, "life_particle"), new Item(new FabricItemSettings()));
+
         SMILER = Registry.register(Registries.ENTITY_TYPE, new Identifier(ID, "smiler"),
                 FabricEntityTypeBuilder.<HallucinationEntity>create(SpawnGroup.MONSTER, HallucinationEntity::new)
                         .dimensions(EntityDimensions.fixed(0.8f, 2.0f)).build());
@@ -104,7 +116,7 @@ public class BodyTradeMod implements ModInitializer {
         Item egg = Registry.register(Registries.ITEM, new Identifier(ID, "prosthetist_spawn_egg"),
                 new SpawnEggItem(PROSTHETIST, 0x6b7a8f, 0xd4aa3c, new FabricItemSettings()));
 
-        ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> { e.add(TRADE_BLOCK); e.add(ADMIN_BLOCK); e.add(egg); });
+        ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> { e.add(TRADE_BLOCK); e.add(ADMIN_BLOCK); e.add(DEV_BLOCK); e.add(LIFE_PARTICLE); e.add(egg); });
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.SPAWN_EGGS).register(e -> e.add(egg));
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -113,6 +125,7 @@ public class BodyTradeMod implements ModInitializer {
             if (st.markGaveBlock(p.getUuid())) {
                 p.getInventory().offerOrDrop(new ItemStack(TRADE_BLOCK));
                 p.sendMessage(Text.literal("Вам выдан Алтарь обмена. Поставьте его и нажмите ПКМ.").formatted(Formatting.GRAY));
+                ServerPlayNetworking.send(p, MODE_OPEN_PACKET, PacketByteBufs.create()); // выбор сложности
             }
             sync(p);
             for (ServerPlayerEntity q : server.getPlayerManager().getPlayerList())
@@ -122,7 +135,9 @@ public class BodyTradeMod implements ModInitializer {
 
         ServerPlayerEvents.AFTER_RESPAWN.register((oldP, newP, alive) -> {
             if (!alive && RESTORE_ON_DEATH) {
-                BodyState.of(newP.getServer()).clear(newP.getUuid());
+                BodyState ds = BodyState.of(newP.getServer());
+                if (ds.isDevelop(newP.getUuid())) { ds.effects(newP.getUuid()).clear(); ds.markDirty(); } // в РазВиВАЙСЯ прогресс не теряется
+                else ds.clear(newP.getUuid());
                 sync(newP);
                 broadcastLimbs(newP.getServer(), newP);
             }
@@ -147,6 +162,28 @@ public class BodyTradeMod implements ModInitializer {
             BodyPart part = BodyPart.byId(buf.readString());
             server.execute(() -> handleBuy(server, player, entityId, part));
         });
+
+        ServerPlayNetworking.registerGlobalReceiver(MODE_PICK_PACKET, (server, player, h, buf, resp) -> {
+            String mode = buf.readString();
+            server.execute(() -> applyMode(server, player, mode.equals("develop")));
+        });
+        ServerPlayNetworking.registerGlobalReceiver(DEV_BUY_PACKET, (server, player, h, buf, resp) -> {
+            BlockPos pos = buf.readBlockPos();
+            BodyPart part = BodyPart.byId(buf.readString());
+            server.execute(() -> handleDevBuy(server, player, pos, part));
+        });
+
+        // /bodymode normal | develop - сменить сложность в любой момент
+        CommandRegistrationCallback.EVENT.register((dispatcher, access, env) -> dispatcher.register(
+                CommandManager.literal("bodymode")
+                        .then(CommandManager.literal("normal").executes(ctx -> {
+                            applyMode(ctx.getSource().getServer(), ctx.getSource().getPlayerOrThrow(), false);
+                            return 1;
+                        }))
+                        .then(CommandManager.literal("develop").executes(ctx -> {
+                            applyMode(ctx.getSource().getServer(), ctx.getSource().getPlayerOrThrow(), true);
+                            return 1;
+                        }))));
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) tickPlayer(server, p);
@@ -360,6 +397,19 @@ public class BodyTradeMod implements ModInitializer {
         for (BodyPart bp : pr) buf.writeString(bp.id);
         buf.writeVarInt(act.size());
         for (Map.Entry<SideEffect, Long> e : act) { buf.writeString(e.getKey().title); buf.writeVarInt((int) ((e.getValue() - now) / 20)); }
+        boolean dev = st.isDevelop(p.getUuid());
+        buf.writeBoolean(dev);
+        if (dev) {
+            int idx = st.taskIndex(p.getUuid());
+            List<DevTasks.Task> tasks = DevTasks.tasks();
+            if (idx < tasks.size()) {
+                DevTasks.Task t = tasks.get(idx);
+                int prog = Math.max(0, Math.min(t.need(), DevTasks.progress(p, t) - st.taskBase(p.getUuid())));
+                buf.writeString(t.text()); buf.writeVarInt(prog); buf.writeVarInt(t.need()); buf.writeVarInt(t.reward());
+            } else {
+                buf.writeString(""); buf.writeVarInt(0); buf.writeVarInt(0); buf.writeVarInt(0);
+            }
+        }
         ServerPlayNetworking.send(p, SYNC_PACKET, buf);
     }
 
@@ -377,6 +427,75 @@ public class BodyTradeMod implements ModInitializer {
         int mask = BodyPart.limbMask(st.get(p.getUuid()));
         int pm = BodyPart.limbMask(st.pros(p.getUuid()));
         for (ServerPlayerEntity q : server.getPlayerManager().getPlayerList()) sendLimbs(q, p.getUuid(), mask, pm);
+    }
+
+    // ---------------------------------------------------------------- режим "РазВиВАЙСЯ"
+    /** Выбор сложности: develop - без рук и ног, возвращать их надо заданиями; normal - обычная игра. */
+    public static void applyMode(MinecraftServer server, ServerPlayerEntity p, boolean develop) {
+        BodyState st = BodyState.of(server);
+        UUID id = p.getUuid();
+        if (develop) {
+            st.setDevelop(id, true);
+            for (BodyPart bp : DevTasks.PRICES.keySet()) { st.add(id, bp); st.removePros(id, bp); }
+            st.setTask(id, 0, DevTasks.progress(p, DevTasks.tasks().get(0)));
+            LAST_PROG.remove(id);
+            p.getInventory().offerOrDrop(new ItemStack(DEV_BLOCK));
+            title(p, Text.literal("РазВиВАЙСЯ").formatted(Formatting.GREEN), Text.literal("Вы лишились всех конечностей").formatted(Formatting.GRAY));
+            p.sendMessage(Text.literal("Режим «РазВиВАЙСЯ»: у вас нет рук и ног. Выполняйте задания (список слева сверху), получайте частицы жизни "
+                    + "и покупайте конечности в Блоке развития. Блок выдан вам в инвентарь.").formatted(Formatting.GREEN));
+        } else {
+            st.setDevelop(id, false);
+            for (BodyPart bp : DevTasks.PRICES.keySet()) { st.remove(id, bp); st.removePros(id, bp); }
+            p.sendMessage(Text.literal("Обычная сложность. Конечности возвращены.").formatted(Formatting.GRAY));
+        }
+        sync(p);
+        broadcastLimbs(server, p);
+    }
+
+    private static void handleDevBuy(MinecraftServer server, ServerPlayerEntity p, BlockPos pos, BodyPart part) {
+        if (part == null || !DevTasks.PRICES.containsKey(part)) return;
+        if (!p.getWorld().getBlockState(pos).isOf(DEV_BLOCK) || p.squaredDistanceTo(Vec3d.ofCenter(pos)) > 64) return;
+        BodyState st = BodyState.of(server);
+        UUID id = p.getUuid();
+        if (!st.get(id).contains(part)) return;
+        int price = DevTasks.PRICES.get(part);
+        if (p.getInventory().count(LIFE_PARTICLE) < price) {
+            p.sendMessage(Text.literal("Не хватает частиц жизни: нужно " + price + ".").formatted(Formatting.RED));
+            return;
+        }
+        removeItems(p, LIFE_PARTICLE, price);
+        st.remove(id, part);
+        st.removePros(id, part);
+        title(p, Text.literal("Вы вернули: " + part.nom.toLowerCase()).formatted(Formatting.GREEN), Text.literal("Куплено за частицы жизни").formatted(Formatting.GRAY));
+        p.sendMessage(Text.literal("Часть тела возвращена: " + part.nom + ".").formatted(Formatting.GREEN));
+        sync(p);
+        broadcastLimbs(server, p);
+    }
+
+    /** Раз в секунду проверяет выполнение текущего задания. */
+    private static void devTick(ServerPlayerEntity p, BodyState st) {
+        UUID id = p.getUuid();
+        if (!st.isDevelop(id)) return;
+        List<DevTasks.Task> tasks = DevTasks.tasks();
+        int idx = st.taskIndex(id);
+        if (idx >= tasks.size()) return;
+        DevTasks.Task t = tasks.get(idx);
+        int prog = DevTasks.progress(p, t) - st.taskBase(id);
+        if (prog >= t.need()) {
+            p.getInventory().offerOrDrop(new ItemStack(LIFE_PARTICLE, t.reward()));
+            idx++;
+            int base = idx < tasks.size() ? DevTasks.progress(p, tasks.get(idx)) : 0;
+            st.setTask(id, idx, base);
+            LAST_PROG.remove(id);
+            title(p, Text.literal("Задание выполнено").formatted(Formatting.GREEN), Text.literal("Частицы жизни: +" + t.reward()).formatted(Formatting.GRAY));
+            p.sendMessage(Text.literal("Задание «" + t.text() + "» выполнено! Получено частиц жизни: " + t.reward() + ".").formatted(Formatting.GREEN));
+            if (idx < tasks.size()) p.sendMessage(Text.literal("Следующее задание: " + tasks.get(idx).text()).formatted(Formatting.YELLOW));
+            else p.sendMessage(Text.literal("Все задания выполнены!").formatted(Formatting.GOLD));
+            sync(p);
+        } else {
+            Integer last = LAST_PROG.get(id);
+            if (last == null || last != prog) { LAST_PROG.put(id, prog); sync(p); }
+        }
     }
 
     // ---------------------------------------------------------------- оголённый нерв
@@ -443,6 +562,7 @@ public class BodyTradeMod implements ModInitializer {
         st.prune(id, now);
         Set<BodyPart> m = st.functional(id);   // без частей, заменённых протезом
         Set<BodyPart> pr = st.pros(id);
+        if (p.age % 20 == 0) devTick(p, st);
 
         // отслеживаем приём пищи
         int food = p.getHungerManager().getFoodLevel();
@@ -517,7 +637,7 @@ public class BodyTradeMod implements ModInitializer {
         }
         if (legs == 1) eff(p, StatusEffects.SLOWNESS, 0);
         if (legs == 2) { eff(p, StatusEffects.SLOWNESS, 3); eff(p, StatusEffects.JUMP_BOOST, 128); }
-        if (ra) { eff(p, StatusEffects.MINING_FATIGUE, 2); eff(p, StatusEffects.WEAKNESS, 1); }
+        if (ra) { eff(p, StatusEffects.MINING_FATIGUE, 1); eff(p, StatusEffects.WEAKNESS, 1); }
         if (eyes == 2) eff(p, StatusEffects.BLINDNESS, 0);
         if (kidneys >= 1) eff(p, StatusEffects.HUNGER, 0);
         if (kidneys == 2) { eff(p, StatusEffects.HUNGER, 1); eff(p, StatusEffects.WEAKNESS, 0); }
