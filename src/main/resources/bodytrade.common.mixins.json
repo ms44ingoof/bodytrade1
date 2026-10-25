@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.example.bodytrade.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": ["PlayerEntityMixin"],
+  "injectors": { "defaultRequire": 0 }
+}

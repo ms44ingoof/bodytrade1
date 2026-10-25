@@ -13,6 +13,7 @@ public class BodyState extends PersistentState {
     private final Map<UUID, EnumSet<BodyPart>> pros = new HashMap<>();
     private final Set<UUID> gaveBlock = new HashSet<>();
     private final Set<UUID> develop = new HashSet<>();
+    private final Set<UUID> drillOff = new HashSet<>();
     private final Map<UUID, int[]> taskBase = new HashMap<>();   // стартовое значение счётчика каждого задания (-1 - ещё не задано)
     private final Map<UUID, int[]> taskDone = new HashMap<>();   // 1 - задание выполнено
     private final Map<UUID, int[]> upgrades = new HashMap<>();   // уровни апгрейдов (индекс = Upgrade.ordinal())
@@ -27,6 +28,8 @@ public class BodyState extends PersistentState {
     public void clear(UUID id) { get(id).clear(); pros(id).clear(); effects(id).clear(); markDirty(); }
     public boolean markGaveBlock(UUID id) { if (gaveBlock.add(id)) { markDirty(); return true; } return false; }
 
+    public boolean isDrillOn(UUID id) { return !drillOff.contains(id); }
+    public void setDrillOn(UUID id, boolean on) { if (on) drillOff.remove(id); else drillOff.add(id); markDirty(); }
     public boolean isDevelop(UUID id) { return develop.contains(id); }
     public void setDevelop(UUID id, boolean v) { if (v) develop.add(id); else develop.remove(id); markDirty(); }
 
@@ -94,6 +97,9 @@ public class BodyState extends PersistentState {
         NbtList dv = new NbtList();
         for (UUID id : develop) dv.add(NbtString.of(id.toString()));
         nbt.put("develop", dv);
+        NbtList dof = new NbtList();
+        for (UUID id : drillOff) dof.add(NbtString.of(id.toString()));
+        nbt.put("drillOff", dof);
         NbtCompound tb = new NbtCompound(), td = new NbtCompound(), up = new NbtCompound();
         taskBase.forEach((id, a) -> tb.putIntArray(id.toString(), a));
         taskDone.forEach((id, a) -> td.putIntArray(id.toString(), a));
@@ -121,6 +127,8 @@ public class BodyState extends PersistentState {
         for (int i = 0; i < g.size(); i++) s.gaveBlock.add(UUID.fromString(g.getString(i)));
         NbtList dv = nbt.getList("develop", NbtElement.STRING_TYPE);
         for (int i = 0; i < dv.size(); i++) s.develop.add(UUID.fromString(dv.getString(i)));
+        NbtList dof = nbt.getList("drillOff", NbtElement.STRING_TYPE);
+        for (int i = 0; i < dof.size(); i++) s.drillOff.add(UUID.fromString(dof.getString(i)));
         NbtCompound tb = nbt.getCompound("taskBase"), td = nbt.getCompound("taskDone"), up = nbt.getCompound("upgrades");
         for (String key : tb.getKeys()) s.taskBase.put(UUID.fromString(key), tb.getIntArray(key));
         for (String key : td.getKeys()) s.taskDone.put(UUID.fromString(key), td.getIntArray(key));

@@ -1,6 +1,9 @@
 package com.example.bodytrade;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
+import net.minecraft.block.BlockState;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.attribute.EntityAttribute;
 import net.minecraft.entity.attribute.EntityAttributeInstance;
 import net.minecraft.entity.attribute.EntityAttributeModifier;
@@ -69,6 +72,7 @@ public class BodyTradeMod implements ModInitializer {
     public static final Identifier MODE_PICK_PACKET = new Identifier(ID, "mode_pick");
     public static final Identifier DEV_BUY_PACKET = new Identifier(ID, "dev_buy");
     public static final Identifier UPG_BUY_PACKET = new Identifier(ID, "upg_buy");
+    public static final Identifier TOGGLE_PACKET = new Identifier(ID, "toggle");
 
     /** Шанс обычной болезни/побочного эффекта после каждой сделки. */
     public static final double SIDE_EFFECT_CHANCE = 0.4;
@@ -77,6 +81,25 @@ public class BodyTradeMod implements ModInitializer {
 
     /** Клиентская копия списка потерянных частей (заполняется на клиенте, на сервере пуста). */
     public static final Set<BodyPart> CLIENT_MISSING = EnumSet.noneOf(BodyPart.class);
+    /** Клиентские маски конечностей/протезов всех игроков (нужны миксину позы "ползёт"). */
+    public static final Map<UUID, Integer> CLIENT_LIMBS = new HashMap<>();
+    public static final Map<UUID, Integer> CLIENT_PROS = new HashMap<>();
+    /** Серверная копия: у кого обе ноги отсутствуют (они ползают). */
+    private static final Set<UUID> CRAWLERS = new HashSet<>();
+    private static final Map<UUID, Direction> LAST_FACE = new HashMap<>();
+    private static final Map<UUID, Integer> FUEL = new HashMap<>();
+    private static boolean DRILLING = false;
+
+    /** Игрок ползёт (обе ноги отсутствуют и не заменены протезами)? Работает и на клиенте, и на сервере. */
+    public static boolean isCrawler(PlayerEntity p) {
+        if (p.getWorld().isClient) {
+            Integer m = CLIENT_LIMBS.get(p.getUuid());
+            if (m == null) return false;
+            int pm = CLIENT_PROS.getOrDefault(p.getUuid(), 0);
+            return ((m & ~pm) & 12) == 12;
+        }
+        return CRAWLERS.contains(p.getUuid());
+    }
 
     private static final Set<Item> SOFT_FOOD = Set.of(Items.MUSHROOM_STEW, Items.BEETROOT_SOUP, Items.RABBIT_STEW,
             Items.SUSPICIOUS_STEW, Items.HONEY_BOTTLE, Items.MELON_SLICE, Items.SWEET_BERRIES, Items.GLOW_BERRIES, Items.PUMPKIN_PIE);
@@ -177,6 +200,18 @@ public class BodyTradeMod implements ModInitializer {
             String mode = buf.readString();
             server.execute(() -> applyMode(server, player, mode.equals("develop")));
         });
+        ServerPlayNetworking.registerGlobalReceiver(TOGGLE_PACKET, (server, player, h, buf, resp) -> {
+            String what = buf.readString();
+            server.execute(() -> {
+                if (!what.equals("drill")) return;
+                BodyState st = BodyState.of(server);
+                if (st.upgrades(player.getUuid(), Upgrade.values().length)[Upgrade.DRILL.ordinal()] <= 0) return;
+                boolean on = !st.isDrillOn(player.getUuid());
+                st.setDrillOn(player.getUuid(), on);
+                player.sendMessage(Text.literal("Бур: " + (on ? "включён" : "выключен")).formatted(on ? Formatting.GREEN : Formatting.GRAY), true);
+                sync(player);
+            });
+        });
         ServerPlayNetworking.registerGlobalReceiver(UPG_BUY_PACKET, (server, player, h, buf, resp) -> {
             BlockPos pos = buf.readBlockPos();
             Upgrade u = Upgrade.byId(buf.readString());
@@ -240,8 +275,15 @@ public class BodyTradeMod implements ModInitializer {
             if (!world.isClient && player instanceof ServerPlayerEntity sp) nerveUse(sp, hand, "бьёте");
             return ActionResult.PASS;
         });
+        AttackBlockCallback.EVENT.register((player, world, hand, pos, dir) -> {
+            if (!world.isClient) LAST_FACE.put(player.getUuid(), dir);
+            return ActionResult.PASS;
+        });
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, be) -> {
-            if (player instanceof ServerPlayerEntity sp) nerveUse(sp, Hand.MAIN_HAND, "ломаете блок");
+            if (player instanceof ServerPlayerEntity sp) {
+                nerveUse(sp, Hand.MAIN_HAND, "ломаете блок");
+                if (world instanceof ServerWorld sw) drillBreak(sp, sw, pos);
+            }
         });
     }
 
@@ -430,6 +472,7 @@ public class BodyTradeMod implements ModInitializer {
         int[] lv = st.upgrades(p.getUuid(), Upgrade.values().length);
         buf.writeVarInt(lv.length);
         for (int x : lv) buf.writeVarInt(x);
+        buf.writeBoolean(st.isDrillOn(p.getUuid()));
         ServerPlayNetworking.send(p, SYNC_PACKET, buf);
     }
 
@@ -550,6 +593,87 @@ public class BodyTradeMod implements ModInitializer {
         if (changed || last == null || last != hash) { LAST_HASH.put(id, hash); sync(p); }
     }
 
+    // ---------------------------------------------------------------- ветки: бур и реактивные ноги
+    /** Бур: после обычной добычи ломает область вокруг блока (3x3 / 6x6 / 9x9) в плоскости удара. */
+    private static void drillBreak(ServerPlayerEntity p, ServerWorld w, BlockPos origin) {
+        if (DRILLING) return;
+        BodyState st = BodyState.of(w.getServer());
+        UUID id = p.getUuid();
+        int lvl = st.upgrades(id, Upgrade.values().length)[Upgrade.DRILL.ordinal()];
+        if (lvl <= 0 || !st.isDrillOn(id)) return;
+        Set<BodyPart> m = st.functional(id);
+        if (m.contains(BodyPart.LEFT_ARM) && m.contains(BodyPart.RIGHT_ARM)) return;
+        int size = new int[]{0, 3, 6, 9}[lvl];
+        int lo = -((size - 1) / 2), hi = size / 2;
+        Direction face = LAST_FACE.getOrDefault(id, Direction.getEntityFacingOrder(p)[0]);
+        Direction.Axis ax = face.getAxis();
+        ItemStack tool = p.getMainHandStack();
+        DRILLING = true;
+        try {
+            for (int i = lo; i <= hi; i++) {
+                for (int j = lo; j <= hi; j++) {
+                    if (i == 0 && j == 0) continue;
+                    BlockPos pos = switch (ax) {
+                        case X -> origin.add(0, i, j);
+                        case Y -> origin.add(i, 0, j);
+                        default -> origin.add(i, j, 0);
+                    };
+                    BlockState s = w.getBlockState(pos);
+                    if (s.isAir() || !s.getFluidState().isEmpty() || w.getBlockEntity(pos) != null) continue;
+                    float hard = s.getHardness(w, pos);
+                    if (hard < 0 || hard > 10f) continue;
+                    p.incrementStat(Stats.MINED.getOrCreateStat(s.getBlock()));
+                    if (!p.isCreative() && p.canHarvest(s)) Block.dropStacks(s, w, pos, null, p, tool);
+                    w.breakBlock(pos, false, p);
+                }
+            }
+        } finally {
+            DRILLING = false;
+        }
+    }
+
+    /** Реактивные ноги: полёт с ограниченным топливом (10 / 25 / 60 с), топливо восстанавливается на земле. */
+    private static void jetTick(ServerPlayerEntity p, int lvl, boolean legsOk) {
+        if (p.isCreative() || p.isSpectator()) return;
+        UUID id = p.getUuid();
+        var ab = p.getAbilities();
+        if (lvl <= 0 || !legsOk) {
+            if (FUEL.containsKey(id) && ab.allowFlying) { ab.allowFlying = false; ab.flying = false; ab.setFlySpeed(0.05f); p.sendAbilitiesUpdate(); }
+            FUEL.remove(id);
+            return;
+        }
+        int max = new int[]{0, 200, 500, 1200}[lvl];
+        float speed = new float[]{0f, 0.025f, 0.05f, 0.12f}[lvl];
+        int fuel = Math.min(FUEL.getOrDefault(id, max), max);
+        if (ab.flying) {
+            fuel--;
+            if (fuel <= 0) {
+                fuel = 0;
+                ab.flying = false;
+                ab.allowFlying = false;
+                p.sendAbilitiesUpdate();
+                effT(p, StatusEffects.SLOW_FALLING, 100, 0);
+                bar(p, "Топливо кончилось!");
+            }
+        } else if (p.isOnGround()) {
+            int regen = lvl == 1 ? (p.age % 2 == 0 ? 1 : 0) : (lvl == 2 ? 1 : 2);
+            fuel = Math.min(max, fuel + regen);
+        }
+        FUEL.put(id, fuel);
+        boolean canFly = fuel >= (ab.allowFlying ? 1 : 20);
+        if (canFly && (!ab.allowFlying || ab.getFlySpeed() != speed)) {
+            ab.allowFlying = true;
+            ab.setFlySpeed(speed);
+            p.sendAbilitiesUpdate();
+        } else if (!canFly && ab.allowFlying) {
+            ab.allowFlying = false;
+            ab.flying = false;
+            p.sendAbilitiesUpdate();
+        }
+        if (p.age % 10 == 0 && (ab.flying || fuel < max))
+            p.sendMessage(Text.literal("Топливо: " + (fuel * 100 / max) + "%").formatted(fuel * 100 / max > 25 ? Formatting.AQUA : Formatting.RED), true);
+    }
+
     // ---------------------------------------------------------------- апгрейды
     private static final UUID U_HEART = UUID.fromString("5a1d0001-0000-4000-8000-000000000001");
     private static final UUID U_LEGS = UUID.fromString("5a1d0001-0000-4000-8000-000000000002");
@@ -564,6 +688,13 @@ public class BodyTradeMod implements ModInitializer {
         int[] lv = st.upgrades(p.getUuid(), Upgrade.values().length);
         int cur = lv[u.ordinal()];
         if (cur >= u.max()) return;
+        if (u.requiresId != null) {
+            Upgrade req = Upgrade.byId(u.requiresId);
+            if (req != null && lv[req.ordinal()] < u.requiresLevel) {
+                p.sendMessage(Text.literal("Сначала прокачайте «" + req.nom + "» до " + u.requiresLevel + " уровня.").formatted(Formatting.RED));
+                return;
+            }
+        }
         int cost = u.costs[cur];
         if (p.getInventory().count(LIFE_PARTICLE) < cost) {
             p.sendMessage(Text.literal("Не хватает частиц жизни: нужно " + cost + ".").formatted(Formatting.RED));
@@ -602,6 +733,8 @@ public class BodyTradeMod implements ModInitializer {
         }
         // печень: регенерация
         if (liver > 0 && !m.contains(BodyPart.LIVER) && a % (new int[]{0, 1200, 700, 400}[liver]) == 0 && p.getHealth() < p.getMaxHealth()) p.heal(1f);
+
+        jetTick(p, lv[Upgrade.JETLEGS.ordinal()], !(m.contains(BodyPart.LEFT_LEG) && m.contains(BodyPart.RIGHT_LEG)));
 
         if (a % 20 != 0) return;
         int heart = lv[Upgrade.HEART.ordinal()], legsL = lv[Upgrade.LEGS.ordinal()], armsL = lv[Upgrade.ARMS.ordinal()];
@@ -712,7 +845,7 @@ public class BodyTradeMod implements ModInitializer {
         Map<SideEffect, Long> fx = st.effects(id);
         for (SideEffect e : fx.keySet()) e.tick(p);
         nerveTick(p, fx);
-        if (m.isEmpty() && pr.isEmpty()) { LAST_FALL.remove(id); return; }
+        if (m.isEmpty() && pr.isEmpty()) { LAST_FALL.remove(id); CRAWLERS.remove(id); return; }
 
         int legs = cnt(m, BodyPart.LEFT_LEG, BodyPart.RIGHT_LEG);
         int feet = cnt(m, BodyPart.LEFT_FOOT, BodyPart.RIGHT_FOOT);
@@ -720,6 +853,7 @@ public class BodyTradeMod implements ModInitializer {
         int kidneys = cnt(m, BodyPart.LEFT_KIDNEY, BodyPart.RIGHT_KIDNEY);
         int eyes = cnt(m, BodyPart.LEFT_EYE, BodyPart.RIGHT_EYE);
         boolean la = m.contains(BodyPart.LEFT_ARM), ra = m.contains(BodyPart.RIGHT_ARM);
+        if (legs == 2) CRAWLERS.add(id); else CRAWLERS.remove(id);   // без обеих ног - только ползком
 
         // хромота / ступни: урон при падении с небольшой высоты (ванильный урон начинается с 3 блоков)
         if (legs > 0 || feet > 0) {

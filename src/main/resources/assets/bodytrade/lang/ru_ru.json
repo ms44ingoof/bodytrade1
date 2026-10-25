@@ -7,5 +7,7 @@
   "entity.bodytrade.prosthetist": "Протезист",
   "block.bodytrade.development_block": "Блок развития",
   "item.bodytrade.life_particle": "Частица жизни",
-  "block.bodytrade.upgrade_block": "Блок апгрейда"
+  "block.bodytrade.upgrade_block": "Блок апгрейда",
+  "key.bodytrade.drill": "Бур: включить/выключить",
+  "key.categories.bodytrade": "Body Trade"
 }

@@ -14,7 +14,11 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.render.entity.PlayerEntityRenderer;
@@ -31,15 +35,17 @@ public class BodyTradeClient implements ClientModInitializer {
     /** Название болезни -> время окончания (мс). */
     public static final Map<String, Long> EFFECTS = new LinkedHashMap<>();
     /** Маска пропавших конечностей у всех игроков (для отрисовки модели). */
-    public static final Map<UUID, Integer> LIMBS = new HashMap<>();
+    public static final Map<UUID, Integer> LIMBS = BodyTradeMod.CLIENT_LIMBS;
     /** Маска установленных протезов у всех игроков. */
-    public static final Map<UUID, Integer> PROS = new HashMap<>();
+    public static final Map<UUID, Integer> PROS = BodyTradeMod.CLIENT_PROS;
     /** Режим РазВиВАЙСЯ: текущее задание. */
     public static boolean develop;
     public static int[] taskProg = new int[0];
     public static boolean[] taskDone = new boolean[0];
     /** Уровни апгрейдов (индекс = Upgrade.ordinal()). */
     public static int[] upgrades = new int[0];
+    public static boolean drillOn = true;
+    public static KeyBinding DRILL_KEY;
 
     public static int tasksDoneCount() { int c = 0; for (boolean d : taskDone) if (d) c++; return c; }
 
@@ -107,17 +113,18 @@ public class BodyTradeClient implements ClientModInitializer {
             for (int i = 0; i < k; i++) eff.put(buf.readString(), buf.readVarInt());
             boolean dev = buf.readBoolean();
             int[] tp = new int[0]; boolean[] td = new boolean[0];
-              if (dev) {
-       int taskCount = buf.readVarInt();
-       tp = new int[taskCount]; td = new boolean[taskCount];
-       for (int i = 0; i < taskCount; i++) { tp[i] = buf.readVarInt(); td[i] = buf.readBoolean(); }
-   }
+            if (dev) {
+                int taskCount = buf.readVarInt();
+                tp = new int[taskCount]; td = new boolean[taskCount];
+                for (int i = 0; i < taskCount; i++) { tp[i] = buf.readVarInt(); td[i] = buf.readBoolean(); }
+            }
             int nu = buf.readVarInt();
             int[] up = new int[nu];
             for (int i = 0; i < nu; i++) up[i] = buf.readVarInt();
+            boolean dOn = buf.readBoolean();
             final int[] ftp = tp; final boolean[] ftd = td;
             client.execute(() -> {
-                develop = dev; taskProg = ftp; taskDone = ftd; upgrades = up;
+                develop = dev; taskProg = ftp; taskDone = ftd; upgrades = up; drillOn = dOn;
                 MISSING.clear(); MISSING.addAll(set);
                 PROSTHETIC.clear(); PROSTHETIC.addAll(pset);
                 EFFECTS.clear();
@@ -152,6 +159,17 @@ public class BodyTradeClient implements ClientModInitializer {
 
         ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> {
             MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false; upgrades = new int[0];
+        });
+
+        // клавиша B - включить/выключить бур
+        DRILL_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.bodytrade.drill", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_B, "key.categories.bodytrade"));
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            while (DRILL_KEY.wasPressed()) {
+                if (mc.player == null) break;
+                net.minecraft.network.PacketByteBuf kb = net.fabricmc.fabric.api.networking.v1.PacketByteBufs.create();
+                kb.writeString("drill");
+                ClientPlayNetworking.send(BodyTradeMod.TOGGLE_PACKET, kb);
+            }
         });
 
         // Без ступней - скольжение, как по льду
@@ -192,11 +210,11 @@ public class BodyTradeClient implements ClientModInitializer {
                 y += 3;
                 int total = com.example.bodytrade.DevTasks.tasks().size();
                 ctx.drawTextWithShadow(mc.textRenderer, "РазВиВАЙСЯ: заданий " + tasksDoneCount() + "/" + total, 5, y, 0x55FF55); y += 10;
-                // три ближайших к выполнению задания
+                // три самых лёгких из невыполненных (в порядке возрастания сложности)
                 var tasks = com.example.bodytrade.DevTasks.tasks();
                 List<Integer> open = new ArrayList<>();
                 for (int i = 0; i < tasks.size() && i < taskProg.length; i++) if (!taskDone[i]) open.add(i);
-                open.sort((x, z) -> Double.compare((double) taskProg[z] / tasks.get(z).need(), (double) taskProg[x] / tasks.get(x).need()));
+                open.sort((x, z) -> Integer.compare(tasks.get(x).reward(), tasks.get(z).reward())); // от лёгких к сложным
                 for (int k = 0; k < Math.min(3, open.size()); k++) {
                     int i = open.get(k);
                     ctx.drawTextWithShadow(mc.textRenderer, "- " + tasks.get(i).text() + " (" + taskProg[i] + "/" + tasks.get(i).need() + ")", 5, y, 0xFFFFFF); y += 10;
@@ -216,9 +234,9 @@ public class BodyTradeClient implements ClientModInitializer {
         ScreenEvents.AFTER_INIT.register((client, screen, sw, sh) -> {
             if (screen instanceof InventoryScreen) {
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Болезни и части тела"),
-                        b -> client.setScreen(new InfoScreen(screen))).dimensions(sw / 2 + 92, sh / 2 - 80, 110, 20).build());
+                        b -> client.setScreen(new InfoScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 80, 110, 20).build());
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Задания"),
-                        b -> client.setScreen(new TasksScreen(screen))).dimensions(sw / 2 + 92, sh / 2 - 56, 110, 20).build());
+                        b -> client.setScreen(new TasksScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 56, 110, 20).build());
             }
         });
     }
