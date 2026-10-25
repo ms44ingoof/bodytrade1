@@ -107,11 +107,11 @@ public class BodyTradeClient implements ClientModInitializer {
             for (int i = 0; i < k; i++) eff.put(buf.readString(), buf.readVarInt());
             boolean dev = buf.readBoolean();
             int[] tp = new int[0]; boolean[] td = new boolean[0];
-            if (dev) {
-                int n = buf.readVarInt();
-                tp = new int[n]; td = new boolean[n];
-                for (int i = 0; i < n; i++) { tp[i] = buf.readVarInt(); td[i] = buf.readBoolean(); }
-            }
+              if (dev) {
+       int taskCount = buf.readVarInt();
+       tp = new int[taskCount]; td = new boolean[taskCount];
+       for (int i = 0; i < taskCount; i++) { tp[i] = buf.readVarInt(); td[i] = buf.readBoolean(); }
+   }
             int nu = buf.readVarInt();
             int[] up = new int[nu];
             for (int i = 0; i < nu; i++) up[i] = buf.readVarInt();
