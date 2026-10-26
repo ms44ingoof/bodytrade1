@@ -724,47 +724,52 @@ public class BodyTradeMod implements ModInitializer {
         for (int x : lv) if (x > 0) { any = true; break; }
         if (!any) return;
         int a = p.age;
-        int stomach = lv[Upgrade.STOMACH.ordinal()], liver = lv[Upgrade.LIVER.ordinal()];
+        // сила каждой ветки организма: 0..1 (растёт с каждой ступенью ветки)
+        double fSt = Upgrade.frac("stomach", lv), fLi = Upgrade.frac("liver", lv), fKi = Upgrade.frac("kidneys", lv), fLu = Upgrade.frac("lungs", lv);
+        double fHe = Upgrade.frac("heart", lv), fEy = Upgrade.frac("eyes", lv), fSk = Upgrade.frac("skin", lv), fBo = Upgrade.frac("bones", lv), fIm = Upgrade.frac("immune", lv);
 
         // желудок: сам подкармливает (без срабатывания "еды" для пищеварительных болезней)
-        if (stomach > 0 && !m.contains(BodyPart.STOMACH) && a % (new int[]{0, 2400, 1600, 1000}[stomach]) == 0) {
+        if (fSt > 0 && !m.contains(BodyPart.STOMACH)) {
+            int interval = (int) Math.max(600, 6000 - fSt * 5400);
             var hm = p.getHungerManager();
-            if (hm.getFoodLevel() < 20) { hm.add(1, 0.3f); LAST_FOOD.put(id, hm.getFoodLevel()); }
+            if (a % interval == 0 && hm.getFoodLevel() < 20) { hm.add(1, 0.3f); LAST_FOOD.put(id, hm.getFoodLevel()); }
         }
         // печень: регенерация
-        if (liver > 0 && !m.contains(BodyPart.LIVER) && a % (new int[]{0, 1200, 700, 400}[liver]) == 0 && p.getHealth() < p.getMaxHealth()) p.heal(1f);
+        if (fLi > 0 && !m.contains(BodyPart.LIVER)) {
+            int interval = (int) Math.max(300, 3600 - fLi * 3300);
+            if (a % interval == 0 && p.getHealth() < p.getMaxHealth()) p.heal(1f);
+        }
 
         jetTick(p, lv[Upgrade.JETLEGS.ordinal()], !(m.contains(BodyPart.LEFT_LEG) && m.contains(BodyPart.RIGHT_LEG)));
 
         if (a % 20 != 0) return;
-        int heart = lv[Upgrade.HEART.ordinal()], legsL = lv[Upgrade.LEGS.ordinal()], armsL = lv[Upgrade.ARMS.ordinal()];
-        int skin = lv[Upgrade.SKIN.ordinal()], bones = lv[Upgrade.BONES.ordinal()], eyes = lv[Upgrade.EYES.ordinal()];
-        int kidneys = lv[Upgrade.KIDNEYS.ordinal()], lungs = lv[Upgrade.LUNGS.ordinal()], immune = lv[Upgrade.IMMUNE.ordinal()];
+        int legsL = lv[Upgrade.LEGS.ordinal()], armsL = lv[Upgrade.ARMS.ordinal()];
 
-        setMod(p, EntityAttributes.GENERIC_MAX_HEALTH, U_HEART, "bt_heart", 2.0 * heart, EntityAttributeModifier.Operation.ADDITION);
+        setMod(p, EntityAttributes.GENERIC_MAX_HEALTH, U_HEART, "bt_heart", Math.round(fHe * 40) / 2.0, EntityAttributeModifier.Operation.ADDITION);
         boolean legsOk = !(m.contains(BodyPart.LEFT_LEG) && m.contains(BodyPart.RIGHT_LEG));
         setMod(p, EntityAttributes.GENERIC_MOVEMENT_SPEED, U_LEGS, "bt_legs", legsOk ? 0.08 * legsL : 0, EntityAttributeModifier.Operation.MULTIPLY_BASE);
         boolean armsOk = !(m.contains(BodyPart.LEFT_ARM) && m.contains(BodyPart.RIGHT_ARM));
         setMod(p, EntityAttributes.GENERIC_ATTACK_DAMAGE, U_ARMS, "bt_arms", armsOk ? 1.0 * armsL : 0, EntityAttributeModifier.Operation.ADDITION);
         if (armsOk && armsL > 0) effT(p, StatusEffects.HASTE, 60, armsL - 1);
-        setMod(p, EntityAttributes.GENERIC_ARMOR, U_SKIN, "bt_skin", 2.0 * skin, EntityAttributeModifier.Operation.ADDITION);
-        setMod(p, EntityAttributes.GENERIC_KNOCKBACK_RESISTANCE, U_BONES, "bt_bones", 0.2 * bones, EntityAttributeModifier.Operation.ADDITION);
+        setMod(p, EntityAttributes.GENERIC_ARMOR, U_SKIN, "bt_skin", Math.round(fSk * 24) / 2.0, EntityAttributeModifier.Operation.ADDITION);
+        setMod(p, EntityAttributes.GENERIC_KNOCKBACK_RESISTANCE, U_BONES, "bt_bones", fBo, EntityAttributeModifier.Operation.ADDITION);
 
         boolean eyesOk = !(m.contains(BodyPart.LEFT_EYE) && m.contains(BodyPart.RIGHT_EYE));
-        if (eyes > 0 && eyesOk && (eyes >= 2 || !p.getWorld().isSkyVisible(p.getBlockPos()))) effT(p, StatusEffects.NIGHT_VISION, 260, 0);
+        if (eyesOk && (fEy >= 0.4 || (fEy >= 0.12 && !p.getWorld().isSkyVisible(p.getBlockPos())))) effT(p, StatusEffects.NIGHT_VISION, 260, 0);
 
         boolean kidneyOk = !(m.contains(BodyPart.LEFT_KIDNEY) && m.contains(BodyPart.RIGHT_KIDNEY));
-        if (kidneys > 0 && kidneyOk) {
-            p.removeStatusEffect(StatusEffects.POISON);
-            if (kidneys >= 2) p.removeStatusEffect(StatusEffects.NAUSEA);
-            if (kidneys >= 3) { p.removeStatusEffect(StatusEffects.HUNGER); p.removeStatusEffect(StatusEffects.WEAKNESS); }
+        if (kidneyOk && fKi > 0) {
+            if (fKi >= 0.12) p.removeStatusEffect(StatusEffects.POISON);
+            if (fKi >= 0.35) p.removeStatusEffect(StatusEffects.NAUSEA);
+            if (fKi >= 0.65) { p.removeStatusEffect(StatusEffects.HUNGER); p.removeStatusEffect(StatusEffects.WEAKNESS); }
         }
         boolean lungOk = !(m.contains(BodyPart.LEFT_LUNG) && m.contains(BodyPart.RIGHT_LUNG));
-        if (lungs > 0 && lungOk && p.isSubmergedIn(FluidTags.WATER)) p.setAir(Math.min(p.getMaxAir(), p.getAir() + 8 * lungs));
+        if (fLu > 0 && lungOk && p.isSubmergedIn(FluidTags.WATER)) p.setAir(Math.min(p.getMaxAir(), p.getAir() + (int) (fLu * 30) + 2));
 
-        if (immune > 0) {
+        if (fIm > 0) {
             Map<SideEffect, Long> fx = st.effects(id);
-            for (Map.Entry<SideEffect, Long> e : fx.entrySet()) e.setValue(e.getValue() - 20L * immune);
+            long extra = (long) (20 * fIm * 4);
+            for (Map.Entry<SideEffect, Long> e : fx.entrySet()) e.setValue(e.getValue() - extra);
             if (!fx.isEmpty()) st.markDirty();
         }
     }
