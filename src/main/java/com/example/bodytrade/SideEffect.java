@@ -189,7 +189,7 @@ public enum SideEffect {
     }
 
     /** Появляется чудовище-галлюцинация (только одно одновременно), охотится только за этим игроком. */
-    private static boolean spawnMonsters(ServerPlayerEntity p) {
+    static boolean spawnMonsters(ServerPlayerEntity p) {
         if (!(p.getWorld() instanceof ServerWorld sw)) return false;
         Random r = p.getRandom();
         Box box = p.getBoundingBox().expand(48);
@@ -212,7 +212,17 @@ public enum SideEffect {
     }
 
     /** Звук только для этого игрока, "позади" него (offset = расстояние, 0 - в его позиции). */
-    private static void play(ServerPlayerEntity p, SoundEvent sound, float offset, float pitch) {
+    /** Ложный звук и шёпот для низкого рассудка. */
+    static void whisper(ServerPlayerEntity p) {
+        Random r = p.getRandom();
+        SoundEvent[] pool = {SoundEvents.ENTITY_ENDERMAN_AMBIENT, SoundEvents.ENTITY_ZOMBIE_AMBIENT, SoundEvents.ENTITY_SKELETON_AMBIENT,
+                SoundEvents.BLOCK_WOODEN_DOOR_OPEN, SoundEvents.ENTITY_CREEPER_PRIMED, SoundEvents.ENTITY_PHANTOM_AMBIENT};
+        play(p, pool[r.nextInt(pool.length)], 3f + r.nextFloat() * 3f, 0.7f + r.nextFloat() * 0.5f);
+        String[] lines = {"Кто-то шепчет за спиной...", "Вам послышались шаги.", "Что-то скребётся в стене.", "Вы не одни."};
+        bar(p, lines[r.nextInt(lines.length)]);
+    }
+
+    static void play(ServerPlayerEntity p, SoundEvent sound, float offset, float pitch) {
         double yaw = Math.toRadians(p.getYaw());
         double x = p.getX() + Math.sin(yaw) * offset, z = p.getZ() - Math.cos(yaw) * offset;
         p.networkHandler.sendPacket(new PlaySoundS2CPacket(Registries.SOUND_EVENT.getEntry(sound), SoundCategory.HOSTILE,

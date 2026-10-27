@@ -45,6 +45,10 @@ public class BodyTradeClient implements ClientModInitializer {
     /** Уровни апгрейдов (индекс = Upgrade.ordinal()). */
     public static int[] upgrades = new int[0];
     public static boolean drillOn = true;
+    /** Рассудок в десятых долях процента (0..1000). */
+    public static int sanity = 1000;
+    public static final Set<String> IMPLANTS = new HashSet<>();
+    public static final Set<String> LORE = new HashSet<>();
     public static KeyBinding DRILL_KEY;
 
     public static int tasksDoneCount() { int c = 0; for (boolean d : taskDone) if (d) c++; return c; }
@@ -122,9 +126,16 @@ public class BodyTradeClient implements ClientModInitializer {
             int[] up = new int[nu];
             for (int i = 0; i < nu; i++) up[i] = buf.readVarInt();
             boolean dOn = buf.readBoolean();
+            int implCount = buf.readVarInt();
+            Set<String> implSet = new HashSet<>();
+            for (int i = 0; i < implCount; i++) implSet.add(buf.readString());
+            int loreCount = buf.readVarInt();
+            Set<String> loreSet = new HashSet<>();
+            for (int i = 0; i < loreCount; i++) loreSet.add(buf.readString());
             final int[] ftp = tp; final boolean[] ftd = td;
             client.execute(() -> {
                 develop = dev; taskProg = ftp; taskDone = ftd; upgrades = up; drillOn = dOn;
+                IMPLANTS.clear(); IMPLANTS.addAll(implSet); LORE.clear(); LORE.addAll(loreSet);
                 MISSING.clear(); MISSING.addAll(set);
                 PROSTHETIC.clear(); PROSTHETIC.addAll(pset);
                 EFFECTS.clear();
@@ -135,6 +146,7 @@ public class BodyTradeClient implements ClientModInitializer {
                 else if (client.currentScreen instanceof ShopScreen sh) sh.refresh();
                 else if (client.currentScreen instanceof DevScreen d) d.refresh();
                 else if (client.currentScreen instanceof UpgradeScreen u) u.refresh();
+                else if (client.currentScreen instanceof ImplantScreen im) im.refresh();
                 else if (client.currentScreen instanceof TasksScreen ts) ts.refresh();
             });
         });
@@ -149,6 +161,11 @@ public class BodyTradeClient implements ClientModInitializer {
             });
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.SANITY_PACKET, (client, handler, buf, sender) -> {
+            int v = buf.readVarInt();
+            client.execute(() -> sanity = v);
+        });
+
         ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.MODE_OPEN_PACKET, (client, handler, buf, sender) ->
                 client.execute(() -> client.setScreen(new ModeScreen())));
 
@@ -158,7 +175,7 @@ public class BodyTradeClient implements ClientModInitializer {
         });
 
         ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> {
-            MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false; upgrades = new int[0];
+            MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false; upgrades = new int[0]; sanity = 1000; IMPLANTS.clear(); LORE.clear();
         });
 
         // клавиша B - включить/выключить бур
@@ -186,55 +203,16 @@ public class BodyTradeClient implements ClientModInitializer {
             p.setVelocity(v.x * k, v.y, v.z * k);
         });
 
-        // Меню слева сверху + полная темнота на стороне потерянного глаза
-        HudRenderCallback.EVENT.register((ctx, delta) -> {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            if (mc.options.hudHidden || mc.player == null) return;
-            int w = ctx.getScaledWindowWidth(), h = ctx.getScaledWindowHeight();
-            boolean le = MISSING.contains(BodyPart.LEFT_EYE), re = MISSING.contains(BodyPart.RIGHT_EYE);
-            if (le && !re) ctx.fill(0, 0, w / 2, h, 0xFF000000);
-            if (re && !le) ctx.fill(w / 2, 0, w, h, 0xFF000000);
-
-            long now = System.currentTimeMillis();
-            EFFECTS.values().removeIf(t -> t < now);
-            int y = 5, shown = 0;
-            if (!MISSING.isEmpty()) {
-                ctx.drawTextWithShadow(mc.textRenderer, "Отсутствует:", 5, y, 0xFF5555); y += 10;
-                for (BodyPart p : MISSING) {
-                    if (shown >= 14) { ctx.drawTextWithShadow(mc.textRenderer, "...и ещё " + (MISSING.size() - shown), 5, y, 0xAAAAAA); y += 10; break; }
-                    String label = "- " + p.nom + (PROSTHETIC.contains(p) ? " (протез)" : "");
-                    ctx.drawTextWithShadow(mc.textRenderer, label, 5, y, PROSTHETIC.contains(p) ? 0x77DDFF : 0xFFFFFF); y += 10; shown++;
-                }
-            }
-            if (develop && taskProg.length > 0) {
-                y += 3;
-                int total = com.example.bodytrade.DevTasks.tasks().size();
-                ctx.drawTextWithShadow(mc.textRenderer, "РазВиВАЙСЯ: заданий " + tasksDoneCount() + "/" + total, 5, y, 0x55FF55); y += 10;
-                // три самых лёгких из невыполненных (в порядке возрастания сложности)
-                var tasks = com.example.bodytrade.DevTasks.tasks();
-                List<Integer> open = new ArrayList<>();
-                for (int i = 0; i < tasks.size() && i < taskProg.length; i++) if (!taskDone[i]) open.add(i);
-                open.sort((x, z) -> Integer.compare(tasks.get(x).reward(), tasks.get(z).reward())); // от лёгких к сложным
-                for (int k = 0; k < Math.min(3, open.size()); k++) {
-                    int i = open.get(k);
-                    ctx.drawTextWithShadow(mc.textRenderer, "- " + tasks.get(i).text() + " (" + taskProg[i] + "/" + tasks.get(i).need() + ")", 5, y, 0xFFFFFF); y += 10;
-                }
-            }
-            if (!EFFECTS.isEmpty()) {
-                y += 3;
-                ctx.drawTextWithShadow(mc.textRenderer, "Болезни и эффекты:", 5, y, 0xFFFF55); y += 10;
-                for (var e : EFFECTS.entrySet()) {
-                    long sec = (e.getValue() - now) / 1000;
-                    ctx.drawTextWithShadow(mc.textRenderer, "- " + e.getKey() + " (" + sec + " с)", 5, y, 0xFFFFFF); y += 10;
-                }
-            }
-        });
+        // HUD: потери, болезни, рассудок, задания, виньетки
+        HudRenderCallback.EVENT.register((ctx, delta) -> ClientHud.render(ctx));
 
         // Кнопка в инвентаре
         ScreenEvents.AFTER_INIT.register((client, screen, sw, sh) -> {
             if (screen instanceof InventoryScreen) {
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Болезни и части тела"),
                         b -> client.setScreen(new InfoScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 80, 110, 20).build());
+                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Энциклопедия"),
+                        b -> client.setScreen(new EncyclopediaScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 32, 110, 20).build());
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Задания"),
                         b -> client.setScreen(new TasksScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 56, 110, 20).build());
             }

@@ -1,6 +1,15 @@
 package com.example.bodytrade;
 
 import net.fabricmc.api.ModInitializer;
+import net.minecraft.world.World;
+import net.minecraft.block.Blocks;
+import net.minecraft.block.CampfireBlock;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.mob.HostileEntity;
+import net.minecraft.registry.tag.BlockTags;
+import net.minecraft.registry.tag.TagKey;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.player.PlayerEntity;
@@ -73,6 +82,8 @@ public class BodyTradeMod implements ModInitializer {
     public static final Identifier DEV_BUY_PACKET = new Identifier(ID, "dev_buy");
     public static final Identifier UPG_BUY_PACKET = new Identifier(ID, "upg_buy");
     public static final Identifier TOGGLE_PACKET = new Identifier(ID, "toggle");
+    public static final Identifier SANITY_PACKET = new Identifier(ID, "sanity");
+    public static final Identifier IMPLANT_BUY_PACKET = new Identifier(ID, "implant_buy");
 
     /** Шанс обычной болезни/побочного эффекта после каждой сделки. */
     public static final double SIDE_EFFECT_CHANCE = 0.4;
@@ -107,6 +118,8 @@ public class BodyTradeMod implements ModInitializer {
     public static Block TRADE_BLOCK, ADMIN_BLOCK, DEV_BLOCK, UPGRADE_BLOCK;
     public static Item LIFE_PARTICLE;
     private static final Map<UUID, Integer> LAST_HASH = new HashMap<>();
+    private static final Map<UUID, Integer> LAST_SANITY = new HashMap<>();
+    private static final Map<UUID, Integer> LAST_BLADE = new HashMap<>();
     public static EntityType<HallucinationEntity> SMILER, SCREAMER;
     public static EntityType<ProsthetistEntity> PROSTHETIST;
 
@@ -161,6 +174,7 @@ public class BodyTradeMod implements ModInitializer {
                 ServerPlayNetworking.send(p, MODE_OPEN_PACKET, PacketByteBufs.create()); // выбор сложности
             }
             sync(p);
+            LAST_SANITY.remove(p.getUuid());
             for (ServerPlayerEntity q : server.getPlayerManager().getPlayerList())
                 sendLimbs(p, q.getUuid(), BodyPart.limbMask(st.get(q.getUuid())), BodyPart.limbMask(st.pros(q.getUuid())));
             broadcastLimbs(server, p);
@@ -171,6 +185,7 @@ public class BodyTradeMod implements ModInitializer {
                 BodyState ds = BodyState.of(newP.getServer());
                 if (ds.isDevelop(newP.getUuid())) { ds.effects(newP.getUuid()).clear(); ds.markDirty(); } // в РазВиВАЙСЯ прогресс не теряется
                 else ds.clear(newP.getUuid());
+                ds.setSanity(newP.getUuid(), 1000);
                 sync(newP);
                 broadcastLimbs(newP.getServer(), newP);
             }
@@ -199,6 +214,11 @@ public class BodyTradeMod implements ModInitializer {
         ServerPlayNetworking.registerGlobalReceiver(MODE_PICK_PACKET, (server, player, h, buf, resp) -> {
             String mode = buf.readString();
             server.execute(() -> applyMode(server, player, mode.equals("develop")));
+        });
+        ServerPlayNetworking.registerGlobalReceiver(IMPLANT_BUY_PACKET, (server, player, h, buf, resp) -> {
+            BlockPos pos = buf.readBlockPos();
+            Implant im = Implant.byId(buf.readString());
+            server.execute(() -> handleImplantBuy(server, player, pos, im));
         });
         ServerPlayNetworking.registerGlobalReceiver(TOGGLE_PACKET, (server, player, h, buf, resp) -> {
             String what = buf.readString();
@@ -272,7 +292,7 @@ public class BodyTradeMod implements ModInitializer {
             return ActionResult.PASS;
         });
         AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) -> {
-            if (!world.isClient && player instanceof ServerPlayerEntity sp) nerveUse(sp, hand, "бьёте");
+            if (!world.isClient && player instanceof ServerPlayerEntity sp) { nerveUse(sp, hand, "бьёте"); bladeHit(sp, entity); }
             return ActionResult.PASS;
         });
         AttackBlockCallback.EVENT.register((player, world, hand, pos, dir) -> {
@@ -304,6 +324,9 @@ public class BodyTradeMod implements ModInitializer {
         Text rewardText = Text.literal("Получено: " + reward.getCount() + " × ").append(reward.getName());
         p.getInventory().offerOrDrop(reward);
         st.add(p.getUuid(), part);
+        if (part.id.contains("arm") || part.id.contains("leg") || part.id.contains("foot"))   // хруст кости
+            p.getWorld().playSound(null, p.getBlockPos(), SoundEvents.BLOCK_BONE_BLOCK_BREAK, SoundCategory.PLAYERS, 1.2f, 0.7f);
+        unlock(p, st, "part:" + part.id, part.nom);
 
         title(p, Text.literal("Вы лишились " + part.gen).formatted(Formatting.DARK_RED), rewardText.copy().formatted(Formatting.GRAY));
         p.sendMessage(Text.literal(part.consequence).formatted(Formatting.RED));
@@ -318,6 +341,7 @@ public class BodyTradeMod implements ModInitializer {
         }
         if (se != null) {
             st.setEffect(p.getUuid(), se, server.getOverworld().getTime() + se.seconds * 20L);
+            unlock(p, st, "fx:" + se.name(), se.title);
             p.sendMessage(Text.literal(se.title + ": " + se.message).formatted(Formatting.YELLOW));
         }
         sync(p);
@@ -400,6 +424,7 @@ public class BodyTradeMod implements ModInitializer {
                 p.sendMessage(Text.literal("[Админ] Возвращено: " + part.nom).formatted(Formatting.GREEN));
             } else {
                 st.add(id, part);
+                unlock(p, st, "part:" + part.id, part.nom);
                 p.sendMessage(Text.literal("[Админ] Отнято: " + part.nom).formatted(Formatting.RED));
                 p.sendMessage(Text.literal(part.consequence).formatted(Formatting.RED));
             }
@@ -412,6 +437,7 @@ public class BodyTradeMod implements ModInitializer {
                 p.sendMessage(Text.literal("[Админ] Снята болезнь: " + se.title).formatted(Formatting.GREEN));
             } else {
                 st.setEffect(id, se, now + se.seconds * 20L);
+                unlock(p, st, "fx:" + se.name(), se.title);
                 p.sendMessage(Text.literal("[Админ] Выдана болезнь: " + se.title).formatted(Formatting.YELLOW));
                 p.sendMessage(Text.literal(se.title + ": " + se.message).formatted(Formatting.YELLOW));
             }
@@ -473,6 +499,12 @@ public class BodyTradeMod implements ModInitializer {
         buf.writeVarInt(lv.length);
         for (int x : lv) buf.writeVarInt(x);
         buf.writeBoolean(st.isDrillOn(p.getUuid()));
+        Set<String> imp = st.implants(p.getUuid());
+        buf.writeVarInt(imp.size());
+        for (String k : imp) buf.writeString(k);
+        Set<String> lor = st.lore(p.getUuid());
+        buf.writeVarInt(lor.size());
+        for (String k : lor) buf.writeString(k);
         ServerPlayNetworking.send(p, SYNC_PACKET, buf);
     }
 
@@ -499,7 +531,7 @@ public class BodyTradeMod implements ModInitializer {
         UUID id = p.getUuid();
         if (develop) {
             st.setDevelop(id, true);
-            for (BodyPart bp : DevTasks.PRICES.keySet()) { st.add(id, bp); st.removePros(id, bp); }
+            for (BodyPart bp : DevTasks.PRICES.keySet()) { st.add(id, bp); st.removePros(id, bp); unlock(p, st, "part:" + bp.id, bp.nom); }
             List<DevTasks.Task> tasks = DevTasks.tasks();
             int[] base = st.taskBase(id, tasks.size()), done = st.taskDone(id, tasks.size());
             for (int i = 0; i < tasks.size(); i++) { base[i] = DevTasks.progress(p, tasks.get(i)); done[i] = 0; }
@@ -563,6 +595,15 @@ public class BodyTradeMod implements ModInitializer {
         broadcastLimbs(server, p);
     }
 
+    /** Выдаёт частицы жизни стопками (награда может быть больше 64). */
+    private static void giveParticles(ServerPlayerEntity p, int n) {
+        while (n > 0) {
+            int k = Math.min(64, n);
+            p.getInventory().offerOrDrop(new ItemStack(LIFE_PARTICLE, k));
+            n -= k;
+        }
+    }
+
     /** Раз в секунду проверяет все задания (они выполняются в любом порядке). */
     private static void devTick(ServerPlayerEntity p, BodyState st) {
         UUID id = p.getUuid();
@@ -581,7 +622,7 @@ public class BodyTradeMod implements ModInitializer {
             if (prog >= t.need()) {
                 done[i] = 1;
                 changed = true;
-                p.getInventory().offerOrDrop(new ItemStack(LIFE_PARTICLE, t.reward()));
+                giveParticles(p, t.reward());
                 title(p, Text.literal("Задание выполнено").formatted(Formatting.GREEN), Text.literal(t.text() + ": +" + t.reward() + " ч. жизни").formatted(Formatting.GRAY));
                 p.sendMessage(Text.literal("Задание «" + t.text() + "» выполнено! Получено частиц жизни: " + t.reward() + ".").formatted(Formatting.GREEN));
                 prog = t.need();
@@ -774,6 +815,141 @@ public class BodyTradeMod implements ModInitializer {
         }
     }
 
+    // ---------------------------------------------------------------- рассудок, импланты, энциклопедия
+    private static void unlock(ServerPlayerEntity p, BodyState st, String key, String title) {
+        if (st.unlock(p.getUuid(), key)) p.sendMessage(Text.literal("[Энциклопедия] Новая запись: " + title).formatted(Formatting.AQUA));
+    }
+
+    private static boolean nearCampfire(World w, BlockPos c) {
+        for (int dx = -4; dx <= 4; dx++)
+            for (int dy = -2; dy <= 2; dy++)
+                for (int dz = -4; dz <= 4; dz++) {
+                    var s = w.getBlockState(c.add(dx, dy, dz));
+                    if ((s.isOf(Blocks.CAMPFIRE) || s.isOf(Blocks.SOUL_CAMPFIRE)) && s.get(CampfireBlock.LIT)) return true;
+                }
+        return false;
+    }
+
+    /** Рассудок (0..100%): падает в темноте, рядом с монстрами и при болезнях; растёт у костра, во сне и в компании. */
+    private static void sanityTick(ServerPlayerEntity p, BodyState st, Set<BodyPart> m) {
+        if (p.isCreative() || p.isSpectator() || p.age % 20 != 0) return;
+        UUID id = p.getUuid();
+        var w = p.getWorld();
+        boolean lantern = st.hasImplant(id, "lantern"), neuro = st.hasImplant(id, "neurochip");
+        int delta = 0;
+        int light = w.getLightLevel(p.getBlockPos());
+        if (light <= 3 && !lantern) delta -= 3; else if (light >= 8) delta += 2;
+        int mobs = w.getEntitiesByClass(HostileEntity.class, p.getBoundingBox().expand(10), e -> true).size();
+        delta -= Math.min(6, mobs * 2);
+        delta -= Math.min(4, st.effects(id).size());
+        if (p.isSleeping()) delta += 25;
+        int others = 0;
+        for (PlayerEntity o : w.getPlayers()) if (o != p && !o.isSpectator() && o.squaredDistanceTo(p) < 64) others++;
+        delta += Math.min(6, others * 3);
+        if (nearCampfire(w, p.getBlockPos())) delta += 6;
+        if (neuro) { if (delta < 0) delta /= 2; delta += 1; }
+        int cur = Math.max(0, Math.min(1000, st.sanity(id) + delta));
+        st.setSanity(id, cur);
+
+        int a = p.age;
+        if (cur < 500 && a % 600 == 0 && p.getRandom().nextDouble() < 0.5) SideEffect.whisper(p);
+        if (cur < 300 && a % 400 == 0) { effT(p, StatusEffects.DARKNESS, 80, 0); SideEffect.play(p, SoundEvents.ENTITY_WARDEN_HEARTBEAT, 0f, 0.8f); }
+        if (cur < 150 && a % 600 == 0 && p.getRandom().nextDouble() < 0.4 && SideEffect.spawnMonsters(p)) bar(p, "Они идут за вами...");
+        if (cur <= 0 && !st.effects(id).containsKey(SideEffect.PSYCHOSIS)) {
+            long now = p.getServer().getOverworld().getTime();
+            st.setEffect(id, SideEffect.PSYCHOSIS, now + 20L * SideEffect.PSYCHOSIS.seconds);
+            unlock(p, st, "fx:PSYCHOSIS", SideEffect.PSYCHOSIS.title);
+            st.setSanity(id, 150);
+            p.sendMessage(Text.literal("Рассудок иссяк. Психоз: " + SideEffect.PSYCHOSIS.message).formatted(Formatting.DARK_RED));
+            sync(p);
+            cur = 150;
+        }
+        int shown = cur / 10;
+        Integer ls = LAST_SANITY.get(id);
+        if (ls == null || ls != shown) {
+            LAST_SANITY.put(id, shown);
+            PacketByteBuf b = PacketByteBufs.create();
+            b.writeVarInt(cur);
+            ServerPlayNetworking.send(p, SANITY_PACKET, b);
+        }
+    }
+
+    private static void handleImplantBuy(MinecraftServer server, ServerPlayerEntity p, BlockPos pos, Implant im) {
+        if (im == null) return;
+        if (!p.getWorld().getBlockState(pos).isOf(UPGRADE_BLOCK) || p.squaredDistanceTo(Vec3d.ofCenter(pos)) > 64) return;
+        BodyState st = BodyState.of(server);
+        UUID id = p.getUuid();
+        Set<String> have = st.implants(id);
+        if (have.contains(im.id)) return;
+        var inv = p.getInventory();
+        if (inv.count(LIFE_PARTICLE) < im.particles || inv.count(im.metal) < im.metalCount) {
+            p.sendMessage(Text.literal("Не хватает материалов: " + im.particles + " ч. жизни и " + im.metalCount + " × ")
+                    .append(new ItemStack(im.metal).getName()).formatted(Formatting.RED));
+            return;
+        }
+        removeItems(p, LIFE_PARTICLE, im.particles);
+        removeItems(p, im.metal, im.metalCount);
+        for (Implant o : Implant.values()) if (o != im && o.slot.equals(im.slot)) have.remove(o.id);
+        have.add(im.id);
+        st.markDirty();
+        title(p, Text.literal("Имплант установлен").formatted(Formatting.AQUA), Text.literal(im.nom).formatted(Formatting.GRAY));
+        p.sendMessage(Text.literal(im.nom + ": " + im.desc).formatted(Formatting.AQUA));
+        sync(p);
+    }
+
+    private static void implantTick(ServerPlayerEntity p, BodyState st, Set<BodyPart> m) {
+        if (p.age % 20 != 0) return;
+        UUID id = p.getUuid();
+        Set<String> im = st.implants(id);
+        if (im.isEmpty()) return;
+        boolean eyesOk = !(m.contains(BodyPart.LEFT_EYE) && m.contains(BodyPart.RIGHT_EYE));
+        if (im.contains("cyber_eye") && eyesOk) {
+            effT(p, StatusEffects.NIGHT_VISION, 260, 0);
+            if (p.getWorld() instanceof ServerWorld w) {
+                for (HostileEntity h : w.getEntitiesByClass(HostileEntity.class, p.getBoundingBox().expand(20), e -> true))
+                    h.addStatusEffect(new StatusEffectInstance(StatusEffects.GLOWING, 40, 0, true, false, false));
+                if (p.age % 100 == 0) orePing(p, w);
+            }
+        }
+        if (im.contains("lantern") && eyesOk && p.getWorld().getLightLevel(p.getBlockPos()) < 8) effT(p, StatusEffects.NIGHT_VISION, 260, 0);
+        if (im.contains("titan_bones")) effT(p, StatusEffects.RESISTANCE, 60, 0);
+    }
+
+    /** Рентген кибер-глаза: ближайшие руды в радиусе 6 блоков. */
+    private static void orePing(ServerPlayerEntity p, ServerWorld w) {
+        List<TagKey<Block>> tags = List.of(BlockTags.DIAMOND_ORES, BlockTags.EMERALD_ORES, BlockTags.GOLD_ORES, BlockTags.IRON_ORES,
+                BlockTags.REDSTONE_ORES, BlockTags.LAPIS_ORES, BlockTags.COAL_ORES, BlockTags.COPPER_ORES);
+        String[] names = {"Алмазы", "Изумруды", "Золото", "Железо", "Красная пыль", "Лазурит", "Уголь", "Медь"};
+        int[] best = new int[tags.size()];
+        Arrays.fill(best, 99);
+        BlockPos c = p.getBlockPos();
+        for (int dx = -6; dx <= 6; dx++)
+            for (int dy = -6; dy <= 6; dy++)
+                for (int dz = -6; dz <= 6; dz++) {
+                    BlockState s = w.getBlockState(c.add(dx, dy, dz));
+                    if (s.isAir()) continue;
+                    int d = Math.max(Math.abs(dx), Math.max(Math.abs(dy), Math.abs(dz)));
+                    for (int i = 0; i < tags.size(); i++) if (d < best[i] && s.isIn(tags.get(i))) best[i] = d;
+                }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < tags.size(); i++) if (best[i] < 99) sb.append(sb.length() > 0 ? ", " : "").append(names[i]).append(" ").append(best[i]).append(" бл.");
+        if (sb.length() > 0) p.sendMessage(Text.literal("Рентген: " + sb).formatted(Formatting.AQUA), true);
+    }
+
+    /** Рука-клинок: удар пустой рукой добавляет урон клинком. */
+    private static void bladeHit(ServerPlayerEntity p, Entity target) {
+        if (!(target instanceof LivingEntity le)) return;
+        BodyState st = BodyState.of(p.getServer());
+        UUID id = p.getUuid();
+        if (!st.hasImplant(id, "blade_arm") || !p.getMainHandStack().isEmpty()) return;
+        Set<BodyPart> m = st.functional(id);
+        if (m.contains(BodyPart.LEFT_ARM) && m.contains(BodyPart.RIGHT_ARM)) return;
+        Integer last = LAST_BLADE.get(id);
+        if (last != null && p.age >= last && p.age - last < 10) return;
+        LAST_BLADE.put(id, p.age);
+        le.damage(p.getDamageSources().playerAttack(p), 6f);
+    }
+
     // ---------------------------------------------------------------- оголённый нерв
     private static void nerveHit(ServerPlayerEntity p, String what) {
         Integer last = NERVE_CD.get(p.getUuid());
@@ -840,6 +1016,11 @@ public class BodyTradeMod implements ModInitializer {
         Set<BodyPart> pr = st.pros(id);
         if (p.age % 20 == 0) devTick(p, st);
         upgradeTick(p, st, m);
+        // звуки тела: сердцебиение при низком здоровье
+        if (!p.isCreative() && p.getHealth() <= 6f && p.age % (p.getHealth() <= 3f ? 20 : 35) == 0)
+            SideEffect.play(p, SoundEvents.ENTITY_WARDEN_HEARTBEAT, 0f, 1f);
+        sanityTick(p, st, m);
+        implantTick(p, st, m);
 
         // отслеживаем приём пищи
         int food = p.getHungerManager().getFoodLevel();
@@ -865,14 +1046,18 @@ public class BodyTradeMod implements ModInitializer {
             float last = LAST_FALL.getOrDefault(id, 0f);
             if (p.isOnGround()) {
                 float threshold = legs > 0 ? 1.4f : 2.2f;
-                if (last >= threshold && last < 3.2f && !p.getAbilities().creativeMode)
+                if (last >= threshold && last < 3.2f && !p.getAbilities().creativeMode) {
                     p.damage(p.getDamageSources().fall(), Math.min(5f, 1f + legs + feet));
+                    p.getWorld().playSound(null, p.getBlockPos(), SoundEvents.BLOCK_BONE_BLOCK_BREAK, SoundCategory.PLAYERS, 1f, 0.8f);
+                }
                 LAST_FALL.put(id, 0f);
             } else {
                 LAST_FALL.put(id, Math.max(last, p.fallDistance));
             }
         }
 
+        // хриплое дыхание без лёгких
+        if (lungs >= 1 && p.age % (lungs == 2 ? 70 : 130) == 0) SideEffect.play(p, SoundEvents.ENTITY_PLAYER_BREATH, 0f, 0.65f);
         boolean noSprint = lungs > 0 || m.contains(BodyPart.TRACHEA);
         if (noSprint) p.setSprinting(false);
 

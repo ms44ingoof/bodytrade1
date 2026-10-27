@@ -63,6 +63,7 @@ public class UpgradeScreen extends FancyScreen {
         else if (level(s) >= s.max()) label = "Максимальный уровень";
         else if (locked(s)) label = "Закрыто";
         else { label = "Улучшить - " + s.costs[level(s)] + " ч. жизни"; canBuy = true; }
+        btn("Импланты", px + pw - 108, py + 5, 100, 16, () -> client.setScreen(new ImplantScreen(pos, this)));
         ButtonWidget buy = btn(label, bx, by, 200, 22, this::buySelected);
         buy.active = canBuy;
         if (level(Upgrade.DRILL) > 0) btn("Бур: " + (BodyTradeClient.drillOn ? "ВКЛ" : "ВЫКЛ") + "  [B]", bx, by + 26, 200, 20, this::toggleDrill);

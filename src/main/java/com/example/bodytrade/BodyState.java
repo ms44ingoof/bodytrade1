@@ -14,6 +14,9 @@ public class BodyState extends PersistentState {
     private final Set<UUID> gaveBlock = new HashSet<>();
     private final Set<UUID> develop = new HashSet<>();
     private final Set<UUID> drillOff = new HashSet<>();
+    private final Map<UUID, Integer> sanity = new HashMap<>();          // рассудок в десятых долях процента (0..1000)
+    private final Map<UUID, Set<String>> implants = new HashMap<>();     // id установленных имплантов
+    private final Map<UUID, Set<String>> lore = new HashMap<>();         // открытые записи энциклопедии
     private final Map<UUID, int[]> taskBase = new HashMap<>();   // стартовое значение счётчика каждого задания (-1 - ещё не задано)
     private final Map<UUID, int[]> taskDone = new HashMap<>();   // 1 - задание выполнено
     private final Map<UUID, int[]> upgrades = new HashMap<>();   // уровни апгрейдов (индекс = Upgrade.ordinal())
@@ -28,6 +31,13 @@ public class BodyState extends PersistentState {
     public void clear(UUID id) { get(id).clear(); pros(id).clear(); effects(id).clear(); markDirty(); }
     public boolean markGaveBlock(UUID id) { if (gaveBlock.add(id)) { markDirty(); return true; } return false; }
 
+    public int sanity(UUID id) { return sanity.getOrDefault(id, 1000); }
+    public void setSanity(UUID id, int v) { sanity.put(id, Math.max(0, Math.min(1000, v))); markDirty(); }
+    public Set<String> implants(UUID id) { return implants.computeIfAbsent(id, k -> new HashSet<>()); }
+    public boolean hasImplant(UUID id, String key) { return implants(id).contains(key); }
+    public Set<String> lore(UUID id) { return lore.computeIfAbsent(id, k -> new HashSet<>()); }
+    /** true, если запись открыта впервые. */
+    public boolean unlock(UUID id, String key) { if (lore(id).add(key)) { markDirty(); return true; } return false; }
     public boolean isDrillOn(UUID id) { return !drillOff.contains(id); }
     public void setDrillOn(UUID id, boolean on) { if (on) drillOff.remove(id); else drillOff.add(id); markDirty(); }
     public boolean isDevelop(UUID id) { return develop.contains(id); }
@@ -107,6 +117,13 @@ public class BodyState extends PersistentState {
         nbt.put("taskBase", tb);
         nbt.put("taskDone", td);
         nbt.put("upgrades", up);
+        NbtCompound sn = new NbtCompound(), im = new NbtCompound(), lr = new NbtCompound();
+        sanity.forEach((id, v) -> sn.putInt(id.toString(), v));
+        implants.forEach((id, set) -> { NbtList l = new NbtList(); for (String k : set) l.add(NbtString.of(k)); im.put(id.toString(), l); });
+        lore.forEach((id, set) -> { NbtList l = new NbtList(); for (String k : set) l.add(NbtString.of(k)); lr.put(id.toString(), l); });
+        nbt.put("sanity", sn);
+        nbt.put("implants", im);
+        nbt.put("lore", lr);
         return nbt;
     }
 
@@ -133,6 +150,10 @@ public class BodyState extends PersistentState {
         for (String key : tb.getKeys()) s.taskBase.put(UUID.fromString(key), tb.getIntArray(key));
         for (String key : td.getKeys()) s.taskDone.put(UUID.fromString(key), td.getIntArray(key));
         for (String key : up.getKeys()) s.upgrades.put(UUID.fromString(key), up.getIntArray(key));
+        NbtCompound sn = nbt.getCompound("sanity"), im = nbt.getCompound("implants"), lr = nbt.getCompound("lore");
+        for (String key : sn.getKeys()) s.sanity.put(UUID.fromString(key), sn.getInt(key));
+        for (String key : im.getKeys()) { Set<String> set = new HashSet<>(); NbtList l = im.getList(key, NbtElement.STRING_TYPE); for (int i = 0; i < l.size(); i++) set.add(l.getString(i)); s.implants.put(UUID.fromString(key), set); }
+        for (String key : lr.getKeys()) { Set<String> set = new HashSet<>(); NbtList l = lr.getList(key, NbtElement.STRING_TYPE); for (int i = 0; i < l.size(); i++) set.add(l.getString(i)); s.lore.put(UUID.fromString(key), set); }
         return s;
     }
 }
