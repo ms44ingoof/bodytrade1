@@ -40,6 +40,7 @@ public final class ClientHud {
         long now = System.currentTimeMillis();
         BodyTradeClient.EFFECTS.values().removeIf(t -> t < now);
         int x = 6, y = 6;
+        y = timerPanel(ctx, tr, x, y);
         y = lossesPanel(ctx, tr, x, y);
         y = diseasesPanel(ctx, tr, x, y, now);
         y = sanityPanel(ctx, tr, x, y);
@@ -103,6 +104,31 @@ public final class ClientHud {
         m.scale(0.65f, 0.65f, 1f);
         c.drawItem(icon(item), 0, 0);
         m.pop();
+    }
+
+    /** Таймер распада: раз в 15 минут отнимается конечность или выдаётся болезнь (режим РазВиВАЙСЯ). */
+    private static int timerPanel(DrawContext c, TextRenderer tr, int x, int y) {
+        int d = BodyTradeClient.decay;
+        if (d == -1) return y;
+        boolean off = d == -2;
+        long t = System.currentTimeMillis();
+        boolean blink = !off && d < 30 && (t / 300) % 2 == 0;
+        int accent = off ? 0x55E08A : (d < 60 ? 0xFF4D4D : 0xFFB84D);
+        int w = 170, h = 32;
+        box(c, x, y, w, h, accent);
+        header(c, tr, x, y, w, "ТАЙМЕР РАСПАДА", off ? "отключён" : null, accent);
+        if (off) {
+            c.drawTextWithShadow(tr, "Хроно-стабилизатор активен", x + 7, y + 19, 0xFF77FF88);
+            return y + h + 4;
+        }
+        String time = String.format("%d:%02d", d / 60, d % 60);
+        c.drawTextWithShadow(tr, time, x + w - 6 - tr.getWidth(time), y + 3, blink ? 0xFFFFFFFF : argb(accent, 0xFF));
+        int bw = w - 14, by = y + 19;
+        c.fill(x + 7, by, x + 7 + bw, by + 6, 0xFF1B1D26);
+        float f = Math.max(0f, Math.min(1f, d / 900f));
+        c.fill(x + 7, by, x + 7 + (int) (bw * f), by + 6, argb(accent, 0xFF));
+        c.fill(x + 7, by, x + 7 + (int) (bw * f), by + 1, 0x40FFFFFF);
+        return y + h + 4;
     }
 
     private static int lossesPanel(DrawContext c, TextRenderer tr, int x, int y) {

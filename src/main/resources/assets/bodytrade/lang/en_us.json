@@ -7,7 +7,16 @@
   "entity.bodytrade.prosthetist": "Prosthetist",
   "block.bodytrade.development_block": "Development Block",
   "item.bodytrade.life_particle": "Life Particle",
-  "block.bodytrade.upgrade_block": "Upgrade Block",
   "key.bodytrade.drill": "Drill: toggle",
-  "key.categories.bodytrade": "Body Trade"
+  "key.categories.bodytrade": "Body Trade",
+  "item.bodytrade.neurite": "Neurite",
+  "block.bodytrade.neurite_ore": "Neurite Ore",
+  "item.bodytrade.upgrade_device": "Upgrade Module",
+  "item.bodytrade.flash_cyber_eye": "Flash Drive: Cyber Eye",
+  "item.bodytrade.flash_lantern": "Flash Drive: Lantern",
+  "item.bodytrade.flash_blade_arm": "Flash Drive: Blade",
+  "item.bodytrade.flash_titan_bones": "Flash Drive: Titan",
+  "item.bodytrade.flash_neurochip": "Flash Drive: Neurochip",
+  "item.bodytrade.flash_chrono": "Flash Drive: Chrono Core",
+  "item.bodytrade.flash_stasis": "Flash Drive: Stasis"
 }

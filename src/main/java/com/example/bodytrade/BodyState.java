@@ -14,6 +14,7 @@ public class BodyState extends PersistentState {
     private final Set<UUID> gaveBlock = new HashSet<>();
     private final Set<UUID> develop = new HashSet<>();
     private final Set<UUID> drillOff = new HashSet<>();
+    private final Map<UUID, Integer> decay = new HashMap<>();           // тики до следующего "распада" (режим РазВиВАЙСЯ)
     private final Map<UUID, Integer> sanity = new HashMap<>();          // рассудок в десятых долях процента (0..1000)
     private final Map<UUID, Set<String>> implants = new HashMap<>();     // id установленных имплантов
     private final Map<UUID, Set<String>> lore = new HashMap<>();         // открытые записи энциклопедии
@@ -38,6 +39,10 @@ public class BodyState extends PersistentState {
     public Set<String> lore(UUID id) { return lore.computeIfAbsent(id, k -> new HashSet<>()); }
     /** true, если запись открыта впервые. */
     public boolean unlock(UUID id, String key) { if (lore(id).add(key)) { markDirty(); return true; } return false; }
+    public static final int DECAY_TICKS = 15 * 60 * 20;
+    public int decay(UUID id) { return decay.getOrDefault(id, DECAY_TICKS); }
+    /** Без markDirty: вызывается каждый тик, сохраняется раз в несколько секунд. */
+    public void setDecay(UUID id, int ticks) { decay.put(id, ticks); }
     public boolean isDrillOn(UUID id) { return !drillOff.contains(id); }
     public void setDrillOn(UUID id, boolean on) { if (on) drillOff.remove(id); else drillOff.add(id); markDirty(); }
     public boolean isDevelop(UUID id) { return develop.contains(id); }
@@ -121,6 +126,9 @@ public class BodyState extends PersistentState {
         sanity.forEach((id, v) -> sn.putInt(id.toString(), v));
         implants.forEach((id, set) -> { NbtList l = new NbtList(); for (String k : set) l.add(NbtString.of(k)); im.put(id.toString(), l); });
         lore.forEach((id, set) -> { NbtList l = new NbtList(); for (String k : set) l.add(NbtString.of(k)); lr.put(id.toString(), l); });
+        NbtCompound dc = new NbtCompound();
+        decay.forEach((id, v) -> dc.putInt(id.toString(), v));
+        nbt.put("decay", dc);
         nbt.put("sanity", sn);
         nbt.put("implants", im);
         nbt.put("lore", lr);
@@ -152,6 +160,8 @@ public class BodyState extends PersistentState {
         for (String key : up.getKeys()) s.upgrades.put(UUID.fromString(key), up.getIntArray(key));
         NbtCompound sn = nbt.getCompound("sanity"), im = nbt.getCompound("implants"), lr = nbt.getCompound("lore");
         for (String key : sn.getKeys()) s.sanity.put(UUID.fromString(key), sn.getInt(key));
+        NbtCompound dc = nbt.getCompound("decay");
+        for (String key : dc.getKeys()) s.decay.put(UUID.fromString(key), dc.getInt(key));
         for (String key : im.getKeys()) { Set<String> set = new HashSet<>(); NbtList l = im.getList(key, NbtElement.STRING_TYPE); for (int i = 0; i < l.size(); i++) set.add(l.getString(i)); s.implants.put(UUID.fromString(key), set); }
         for (String key : lr.getKeys()) { Set<String> set = new HashSet<>(); NbtList l = lr.getList(key, NbtElement.STRING_TYPE); for (int i = 0; i < l.size(); i++) set.add(l.getString(i)); s.lore.put(UUID.fromString(key), set); }
         return s;

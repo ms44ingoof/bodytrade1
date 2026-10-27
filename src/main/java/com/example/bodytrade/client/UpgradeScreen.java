@@ -17,14 +17,13 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * Блок апгрейда: дерево улучшений. Слева "Организм", от него расходятся ветки; каждая следующая ступень
+ * Модуль апгрейда: дерево улучшений. Слева "Организм", от него расходятся ветки; каждая следующая ступень
  * открывается после максимума предыдущей. Поле двигается мышью (зажать и тянуть) и колёсиком.
  */
 public class UpgradeScreen extends FancyScreen {
     private static final int COLW = 158, ROWH = 40, R = 13, LABEL_W = 106, NODE_H = 26, PAD = 28, ROWS = 11;
     private static final int GOLD = 0xFFFFD166, CYAN = 0xFF3DD6FF, VIOLET = 0xFFB07CFF, GRAY = 0xFF3A3F4A;
 
-    private final BlockPos pos;
     private final Map<Upgrade, ItemStack> icons = new EnumMap<>(Upgrade.class);
     private final ItemStack hubIcon = new ItemStack(Items.PLAYER_HEAD);
     private Upgrade selected = null;
@@ -32,9 +31,8 @@ public class UpgradeScreen extends FancyScreen {
     private boolean dragging = false;
     private int vx, vy, vw, vh; // область дерева
 
-    public UpgradeScreen(BlockPos pos) {
-        super(Text.literal("Блок апгрейда - дерево улучшений"), 0x9B59F6, 0xFFD166);
-        this.pos = pos;
+    public UpgradeScreen() {
+        super(Text.literal("Модуль апгрейда - дерево улучшений"), 0x9B59F6, 0xFFD166);
     }
 
     public void refresh() { clearAndInit(); }
@@ -63,7 +61,7 @@ public class UpgradeScreen extends FancyScreen {
         else if (level(s) >= s.max()) label = "Максимальный уровень";
         else if (locked(s)) label = "Закрыто";
         else { label = "Улучшить - " + s.costs[level(s)] + " ч. жизни"; canBuy = true; }
-        btn("Импланты", px + pw - 108, py + 5, 100, 16, () -> client.setScreen(new ImplantScreen(pos, this)));
+        btn("Импланты", px + pw - 108, py + 5, 100, 16, () -> client.setScreen(new ImplantScreen(this)));
         ButtonWidget buy = btn(label, bx, by, 200, 22, this::buySelected);
         buy.active = canBuy;
         if (level(Upgrade.DRILL) > 0) btn("Бур: " + (BodyTradeClient.drillOn ? "ВКЛ" : "ВЫКЛ") + "  [B]", bx, by + 26, 200, 20, this::toggleDrill);
@@ -80,7 +78,6 @@ public class UpgradeScreen extends FancyScreen {
     private void buySelected() {
         if (selected == null) return;
         PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeBlockPos(pos);
         buf.writeString(selected.id);
         ClientPlayNetworking.send(BodyTradeMod.UPG_BUY_PACKET, buf);
     }

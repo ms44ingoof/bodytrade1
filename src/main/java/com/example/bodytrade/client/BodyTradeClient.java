@@ -47,6 +47,8 @@ public class BodyTradeClient implements ClientModInitializer {
     public static boolean drillOn = true;
     /** Рассудок в десятых долях процента (0..1000). */
     public static int sanity = 1000;
+    /** Таймер распада: секунды до следующего удара; -1 - нет режима, -2 - отключён имплантом. */
+    public static int decay = -1;
     public static final Set<String> IMPLANTS = new HashSet<>();
     public static final Set<String> LORE = new HashSet<>();
     public static KeyBinding DRILL_KEY;
@@ -101,7 +103,9 @@ public class BodyTradeClient implements ClientModInitializer {
         });
 
         AdminBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new AdminScreen(pos));
-        com.example.bodytrade.UpgradeBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new UpgradeScreen(pos));
+        com.example.bodytrade.UpgradeItem.CLIENT_OPEN = () -> MinecraftClient.getInstance().setScreen(new UpgradeScreen());
+        net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents.LAST.register(OreEsp::render);
+        ClientTickEvents.END_CLIENT_TICK.register(OreEsp::tick);
         com.example.bodytrade.DevBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new DevScreen(pos));
         TradeBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new TradeScreen(pos));
 
@@ -161,6 +165,11 @@ public class BodyTradeClient implements ClientModInitializer {
             });
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.DECAY_PACKET, (client, handler, buf, sender) -> {
+            int v = buf.readVarInt() - 2;
+            client.execute(() -> decay = v);
+        });
+
         ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.SANITY_PACKET, (client, handler, buf, sender) -> {
             int v = buf.readVarInt();
             client.execute(() -> sanity = v);
@@ -175,7 +184,7 @@ public class BodyTradeClient implements ClientModInitializer {
         });
 
         ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> {
-            MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false; upgrades = new int[0]; sanity = 1000; IMPLANTS.clear(); LORE.clear();
+            MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false; upgrades = new int[0]; sanity = 1000; decay = -1; IMPLANTS.clear(); LORE.clear();
         });
 
         // клавиша B - включить/выключить бур

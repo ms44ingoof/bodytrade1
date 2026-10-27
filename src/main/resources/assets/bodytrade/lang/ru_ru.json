@@ -7,7 +7,16 @@
   "entity.bodytrade.prosthetist": "Протезист",
   "block.bodytrade.development_block": "Блок развития",
   "item.bodytrade.life_particle": "Частица жизни",
-  "block.bodytrade.upgrade_block": "Блок апгрейда",
   "key.bodytrade.drill": "Бур: включить/выключить",
-  "key.categories.bodytrade": "Body Trade"
+  "key.categories.bodytrade": "Body Trade",
+  "item.bodytrade.neurite": "Нейрит",
+  "block.bodytrade.neurite_ore": "Нейритовая руда",
+  "item.bodytrade.upgrade_device": "Модуль апгрейда",
+  "item.bodytrade.flash_cyber_eye": "Флешка «Кибер-глаз»",
+  "item.bodytrade.flash_lantern": "Флешка «Фонарь»",
+  "item.bodytrade.flash_blade_arm": "Флешка «Клинок»",
+  "item.bodytrade.flash_titan_bones": "Флешка «Титан»",
+  "item.bodytrade.flash_neurochip": "Флешка «Нейрочип»",
+  "item.bodytrade.flash_chrono": "Флешка «Хроно-ядро»",
+  "item.bodytrade.flash_stasis": "Флешка «Стазис»"
 }

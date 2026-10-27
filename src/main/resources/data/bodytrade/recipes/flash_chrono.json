@@ -1,0 +1,1 @@
+{"type": "minecraft:crafting_shapeless", "ingredients": [{"item": "bodytrade:neurite"}, {"item": "bodytrade:neurite"}, {"item": "minecraft:redstone_block"}, {"item": "minecraft:gold_ingot"}, {"item": "minecraft:gold_ingot"}, {"item": "minecraft:clock"}], "result": {"item": "bodytrade:flash_chrono", "count": 1}}
