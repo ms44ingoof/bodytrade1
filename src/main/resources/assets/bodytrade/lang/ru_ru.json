@@ -3,8 +3,6 @@
   "entity.bodytrade.smiler": "Улыбака",
   "entity.bodytrade.screamer": "Крикун",
   "block.bodytrade.admin_altar": "Админ-алтарь",
-  "item.bodytrade.prosthetist_spawn_egg": "Вызов протезиста",
-  "entity.bodytrade.prosthetist": "Протезист",
   "block.bodytrade.development_block": "Блок развития",
   "item.bodytrade.life_particle": "Частица жизни",
   "key.bodytrade.drill": "Бур: включить/выключить",
@@ -18,5 +16,9 @@
   "item.bodytrade.flash_titan_bones": "Флешка «Титан»",
   "item.bodytrade.flash_neurochip": "Флешка «Нейрочип»",
   "item.bodytrade.flash_chrono": "Флешка «Хроно-ядро»",
-  "item.bodytrade.flash_stasis": "Флешка «Стазис»"
+  "item.bodytrade.flash_stasis": "Флешка «Стазис»",
+  "item.bodytrade.selenite": "Селенит",
+  "block.bodytrade.selenite_ore": "Селенитовая руда",
+  "item.bodytrade.spectral_prism": "Спектральная призма",
+  "key.bodytrade.esp": "Подсветка кибер-глаза: включить/выключить"
 }

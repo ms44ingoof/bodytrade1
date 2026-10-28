@@ -12,7 +12,7 @@ import net.minecraft.world.World;
 
 import java.util.function.Consumer;
 
-/** Блок развития: за частицы жизни покупаются потерянные конечности (режим "РазВиВАЙСЯ"). */
+/** Блок развития: за частицы жизни покупаются потерянные конечности (режим "Перерождение"). */
 public class DevBlock extends Block {
     public static Consumer<BlockPos> CLIENT_OPEN = pos -> {};
 

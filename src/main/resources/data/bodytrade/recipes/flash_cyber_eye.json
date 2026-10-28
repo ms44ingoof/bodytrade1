@@ -1,1 +1,1 @@
-{"type": "minecraft:crafting_shapeless", "ingredients": [{"item": "bodytrade:neurite"}, {"item": "minecraft:redstone"}, {"item": "minecraft:redstone"}, {"item": "minecraft:iron_ingot"}, {"item": "minecraft:ender_eye"}], "result": {"item": "bodytrade:flash_cyber_eye", "count": 1}}
+{"type": "minecraft:crafting_shapeless", "ingredients": [{"item": "bodytrade:spectral_prism"}, {"item": "minecraft:redstone"}, {"item": "minecraft:redstone"}, {"item": "minecraft:iron_ingot"}, {"item": "minecraft:ender_eye"}], "result": {"item": "bodytrade:flash_cyber_eye", "count": 1}}

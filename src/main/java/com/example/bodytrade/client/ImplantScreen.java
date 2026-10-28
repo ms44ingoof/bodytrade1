@@ -36,13 +36,22 @@ public class ImplantScreen extends FancyScreen {
             ButtonWidget b = btn(have ? "Установлен" : (slotBusy ? "Заменить" : "Установить"), right - 98, cardY(i) + 5, 92, 18, () -> buy(im));
             b.active = !have;
         }
-        btn("Назад", width / 2 - 50, py + ph - 28, 100, 20, this::close);
+        btn("Рецепты флешек", px + pw - 128, py + 5, 120, 16, () -> client.setScreen(new RecipesScreen(this)));
+        if (BodyTradeClient.IMPLANTS.contains("cyber_eye"))
+            btn("Подсветка: " + (BodyTradeClient.espOn ? "ВКЛ" : "ВЫКЛ") + "  [V]", px + 12, py + ph - 28, 170, 20, this::toggleEsp);
+        btn("Назад", width / 2 - 50 + (BodyTradeClient.IMPLANTS.contains("cyber_eye") ? 90 : 0), py + ph - 28, 100, 20, this::close);
     }
 
     private void buy(Implant im) {
         PacketByteBuf buf = PacketByteBufs.create();
         buf.writeString(im.id);
         ClientPlayNetworking.send(BodyTradeMod.IMPLANT_BUY_PACKET, buf);
+    }
+
+    private void toggleEsp() {
+        PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeString("esp");
+        ClientPlayNetworking.send(BodyTradeMod.TOGGLE_PACKET, buf);
     }
 
     @Override

@@ -3,8 +3,6 @@
   "entity.bodytrade.smiler": "Smiler",
   "entity.bodytrade.screamer": "Screamer",
   "block.bodytrade.admin_altar": "Admin Altar",
-  "item.bodytrade.prosthetist_spawn_egg": "Prosthetist Spawn Egg",
-  "entity.bodytrade.prosthetist": "Prosthetist",
   "block.bodytrade.development_block": "Development Block",
   "item.bodytrade.life_particle": "Life Particle",
   "key.bodytrade.drill": "Drill: toggle",
@@ -18,5 +16,9 @@
   "item.bodytrade.flash_titan_bones": "Flash Drive: Titan",
   "item.bodytrade.flash_neurochip": "Flash Drive: Neurochip",
   "item.bodytrade.flash_chrono": "Flash Drive: Chrono Core",
-  "item.bodytrade.flash_stasis": "Flash Drive: Stasis"
+  "item.bodytrade.flash_stasis": "Flash Drive: Stasis",
+  "item.bodytrade.selenite": "Selenite",
+  "block.bodytrade.selenite_ore": "Selenite Ore",
+  "item.bodytrade.spectral_prism": "Spectral Prism",
+  "key.bodytrade.esp": "Cyber Eye highlight: toggle"
 }

@@ -1,1 +1,0 @@
-{"type": "minecraft:crafting_shaped", "pattern": [" D ", "IEI", " I "], "key": {"D": {"item": "minecraft:diamond"}, "I": {"item": "minecraft:iron_ingot"}, "E": {"item": "minecraft:emerald"}}, "result": {"item": "bodytrade:prosthetist_spawn_egg", "count": 1}}

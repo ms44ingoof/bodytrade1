@@ -38,13 +38,15 @@ public class BodyTradeClient implements ClientModInitializer {
     public static final Map<UUID, Integer> LIMBS = BodyTradeMod.CLIENT_LIMBS;
     /** Маска установленных протезов у всех игроков. */
     public static final Map<UUID, Integer> PROS = BodyTradeMod.CLIENT_PROS;
-    /** Режим РазВиВАЙСЯ: текущее задание. */
+    /** Режим Перерождение: текущее задание. */
     public static boolean develop;
     public static int[] taskProg = new int[0];
     public static boolean[] taskDone = new boolean[0];
     /** Уровни апгрейдов (индекс = Upgrade.ordinal()). */
     public static int[] upgrades = new int[0];
     public static boolean drillOn = true;
+    public static boolean espOn = true;
+    public static KeyBinding ESP_KEY;
     /** Рассудок в десятых долях процента (0..1000). */
     public static int sanity = 1000;
     /** Таймер распада: секунды до следующего удара; -1 - нет режима, -2 - отключён имплантом. */
@@ -94,8 +96,6 @@ public class BodyTradeClient implements ClientModInitializer {
                 new BillboardRenderer(ctx, new Identifier(BodyTradeMod.ID, "textures/entity/smiler.png"), 1.15f, 2.0f));
         EntityRendererRegistry.register(BodyTradeMod.SCREAMER, ctx ->
                 new BillboardRenderer(ctx, new Identifier(BodyTradeMod.ID, "textures/entity/screamer.png"), 2.3f, 2.2f));
-        EntityModelLayerRegistry.registerModelLayer(ProsthetistModel.LAYER, ProsthetistModel::getTexturedModelData);
-        EntityRendererRegistry.register(BodyTradeMod.PROSTHETIST, ProsthetistRenderer::new);
 
         // металлические протезы на модели игрока
         LivingEntityFeatureRendererRegistrationCallback.EVENT.register((type, renderer, helper, ctx) -> {
@@ -136,10 +136,11 @@ public class BodyTradeClient implements ClientModInitializer {
             int loreCount = buf.readVarInt();
             Set<String> loreSet = new HashSet<>();
             for (int i = 0; i < loreCount; i++) loreSet.add(buf.readString());
+            boolean eOn = buf.readBoolean();
             final int[] ftp = tp; final boolean[] ftd = td;
             client.execute(() -> {
                 develop = dev; taskProg = ftp; taskDone = ftd; upgrades = up; drillOn = dOn;
-                IMPLANTS.clear(); IMPLANTS.addAll(implSet); LORE.clear(); LORE.addAll(loreSet);
+                espOn = eOn; IMPLANTS.clear(); IMPLANTS.addAll(implSet); LORE.clear(); LORE.addAll(loreSet);
                 MISSING.clear(); MISSING.addAll(set);
                 PROSTHETIC.clear(); PROSTHETIC.addAll(pset);
                 EFFECTS.clear();
@@ -147,7 +148,6 @@ public class BodyTradeClient implements ClientModInitializer {
                 eff.forEach((name, sec) -> EFFECTS.put(name, now + sec * 1000L));
                 if (client.currentScreen instanceof TradeScreen s) s.refresh();
                 else if (client.currentScreen instanceof AdminScreen a) a.refresh();
-                else if (client.currentScreen instanceof ShopScreen sh) sh.refresh();
                 else if (client.currentScreen instanceof DevScreen d) d.refresh();
                 else if (client.currentScreen instanceof UpgradeScreen u) u.refresh();
                 else if (client.currentScreen instanceof ImplantScreen im) im.refresh();
@@ -178,11 +178,6 @@ public class BodyTradeClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.MODE_OPEN_PACKET, (client, handler, buf, sender) ->
                 client.execute(() -> client.setScreen(new ModeScreen())));
 
-        ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.SHOP_PACKET, (client, handler, buf, sender) -> {
-            int entityId = buf.readVarInt();
-            client.execute(() -> client.setScreen(new ShopScreen(entityId)));
-        });
-
         ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> {
             MISSING.clear(); PROSTHETIC.clear(); EFFECTS.clear(); LIMBS.clear(); PROS.clear(); develop = false; upgrades = new int[0]; sanity = 1000; decay = -1; IMPLANTS.clear(); LORE.clear();
         });
@@ -194,6 +189,17 @@ public class BodyTradeClient implements ClientModInitializer {
                 if (mc.player == null) break;
                 net.minecraft.network.PacketByteBuf kb = net.fabricmc.fabric.api.networking.v1.PacketByteBufs.create();
                 kb.writeString("drill");
+                ClientPlayNetworking.send(BodyTradeMod.TOGGLE_PACKET, kb);
+            }
+        });
+
+        // клавиша V - включить/выключить подсветку кибер-глаза
+        ESP_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.bodytrade.esp", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.bodytrade"));
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            while (ESP_KEY.wasPressed()) {
+                if (mc.player == null) break;
+                net.minecraft.network.PacketByteBuf kb = net.fabricmc.fabric.api.networking.v1.PacketByteBufs.create();
+                kb.writeString("esp");
                 ClientPlayNetworking.send(BodyTradeMod.TOGGLE_PACKET, kb);
             }
         });
@@ -220,6 +226,8 @@ public class BodyTradeClient implements ClientModInitializer {
             if (screen instanceof InventoryScreen) {
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Болезни и части тела"),
                         b -> client.setScreen(new InfoScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 80, 110, 20).build());
+                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Рецепты"),
+                        b -> client.setScreen(new RecipesScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 8, 110, 20).build());
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Энциклопедия"),
                         b -> client.setScreen(new EncyclopediaScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 32, 110, 20).build());
                 Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Задания"),

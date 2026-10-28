@@ -1,1 +1,1 @@
-{"type": "minecraft:crafting_shapeless", "ingredients": [{"item": "bodytrade:neurite"}, {"item": "minecraft:redstone"}, {"item": "minecraft:redstone"}, {"item": "minecraft:iron_ingot"}, {"item": "minecraft:iron_sword"}], "result": {"item": "bodytrade:flash_blade_arm", "count": 1}}
+{"type": "minecraft:crafting_shapeless", "ingredients": [{"item": "bodytrade:spectral_prism"}, {"item": "minecraft:redstone"}, {"item": "minecraft:redstone"}, {"item": "minecraft:netherite_sword"}], "result": {"item": "bodytrade:flash_blade_arm", "count": 1}}

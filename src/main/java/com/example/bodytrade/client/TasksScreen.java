@@ -54,7 +54,7 @@ public class TasksScreen extends FancyScreen {
     @Override
     protected void drawContent(DrawContext ctx, int mx, int my, float delta) {
         if (!BodyTradeClient.develop) {
-            ctx.drawCenteredTextWithShadow(textRenderer, Text.literal("Задания доступны в режиме РазВиВАЙСЯ (/bodymode develop)."), width / 2, py + 60, 0xFF9A9AAA);
+            ctx.drawCenteredTextWithShadow(textRenderer, Text.literal("Задания доступны в режиме Перерождение (/bodymode develop)."), width / 2, py + 60, 0xFF9A9AAA);
             return;
         }
         var tasks = DevTasks.tasks();

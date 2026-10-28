@@ -52,7 +52,7 @@ public class ModeScreen extends FancyScreen {
     @Override
     protected void drawContent(DrawContext ctx, int mx, int my, float delta) {
         card(ctx, r0, "Обычная", "Игра как есть. Части тела вы отдаёте на алтаре обмена сами, когда захотите, и получаете случайные предметы.", 0xFFE8C77A);
-        card(ctx, r1, "РазВиВАЙСЯ", "Вы начинаете без рук и ног и ползёте. Выполняйте задания, копите частицы жизни, покупайте конечности и улучшайте организм.", 0xFF55E08A);
+        card(ctx, r1, "Перерождение", "Вы начинаете без рук и ног и ползёте. Выполняйте задания, копите частицы жизни, покупайте конечности и улучшайте организм.", 0xFF55E08A);
         ctx.drawCenteredTextWithShadow(textRenderer, Text.literal("Сменить позже: /bodymode normal  или  /bodymode develop"), width / 2, py + ph - 16, 0xFF77778A);
     }
 }

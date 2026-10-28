@@ -46,7 +46,7 @@ public final class OreEsp {
     }
 
     private static boolean active() {
-        return BodyTradeClient.IMPLANTS.contains("cyber_eye")
+        return BodyTradeClient.IMPLANTS.contains("cyber_eye") && BodyTradeClient.espOn
                 && !(BodyTradeClient.MISSING.contains(BodyPart.LEFT_EYE) && BodyTradeClient.MISSING.contains(BodyPart.RIGHT_EYE));
     }
 
@@ -57,7 +57,7 @@ public final class OreEsp {
         BlockPos c = mc.player.getBlockPos();
         List<Ore> list = new ArrayList<>();
         BlockPos.Mutable mp = new BlockPos.Mutable();
-        Block neurite = BodyTradeMod.NEURITE_ORE;
+        Block neurite = BodyTradeMod.NEURITE_ORE, selenite = BodyTradeMod.SELENITE_ORE;
         outer:
         for (int dx = -RADIUS; dx <= RADIUS; dx++)
             for (int dy = -RADIUS; dy <= RADIUS; dy++)
@@ -68,6 +68,7 @@ public final class OreEsp {
                     Block b = s.getBlock();
                     Integer col = COLORS.get(b);
                     if (col == null && b == neurite) col = 0xC04DFF;
+                    if (col == null && b == selenite) col = 0xFFFFFF;
                     if (col != null) {
                         list.add(new Ore(mp.getX(), mp.getY(), mp.getZ(), col));
                         if (list.size() >= 700) break outer;

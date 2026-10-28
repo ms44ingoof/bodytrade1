@@ -15,7 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Режим "РазВиВАЙСЯ": задания (выполняются в любом порядке) и цены конечностей в частицах жизни. */
+/** Режим "Перерождение": задания (выполняются в любом порядке) и цены конечностей в частицах жизни. */
 public final class DevTasks {
     private DevTasks() {}
 

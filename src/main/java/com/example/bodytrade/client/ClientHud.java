@@ -106,7 +106,7 @@ public final class ClientHud {
         m.pop();
     }
 
-    /** Таймер распада: раз в 15 минут отнимается конечность или выдаётся болезнь (режим РазВиВАЙСЯ). */
+    /** Таймер распада: раз в 15 минут отнимается конечность или выдаётся болезнь (режим Перерождение). */
     private static int timerPanel(DrawContext c, TextRenderer tr, int x, int y) {
         int d = BodyTradeClient.decay;
         if (d == -1) return y;
