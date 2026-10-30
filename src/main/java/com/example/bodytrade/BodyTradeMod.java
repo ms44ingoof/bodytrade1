@@ -192,12 +192,14 @@ public class BodyTradeMod implements ModInitializer {
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> { e.add(TRADE_BLOCK); e.add(ADMIN_BLOCK); e.add(DEV_BLOCK); e.add(UPGRADE_DEVICE); e.add(LIFE_PARTICLE); e.add(NEURITE_ORE); e.add(NEURITE); e.add(SELENITE_ORE); e.add(SELENITE); e.add(SPECTRAL_PRISM);
             e.add(FLASH_CYBER_EYE); e.add(FLASH_LANTERN); e.add(FLASH_BLADE_ARM); e.add(FLASH_TITAN_BONES); e.add(FLASH_NEUROCHIP); e.add(FLASH_CHRONO); e.add(FLASH_STASIS); e.add(FLASH_MECH_EAR); e.add(LIFE_CONVERTER); });
 
+        Story.init();
+
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity p = handler.player;
             BodyState st = BodyState.of(server);
             if (st.markGaveBlock(p.getUuid())) {
-                // алтарь обмена выдаётся только на обычной сложности (см. applyMode)
-                ServerPlayNetworking.send(p, MODE_OPEN_PACKET, PacketByteBufs.create()); // выбор сложности
+                // сложность теперь выбирается в сюжете: сначала добыча дерева, потом приходит Доктор (см. Story)
+                Story.begin(p, st);
             }
             sync(p);
             // рецепты мода сразу появляются в книге рецептов
@@ -211,6 +213,7 @@ public class BodyTradeMod implements ModInitializer {
         });
 
         ServerPlayerEvents.AFTER_RESPAWN.register((oldP, newP, alive) -> {
+            Story.onRespawn(newP);
             if (!alive && RESTORE_ON_DEATH) {
                 BodyState ds = BodyState.of(newP.getServer());
                 if (ds.isDevelop(newP.getUuid())) { ds.effects(newP.getUuid()).clear(); ds.markDirty(); } // в Перерождение прогресс не теряется
@@ -288,6 +291,7 @@ public class BodyTradeMod implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             var players = server.getPlayerManager().getPlayerList();
             for (ServerPlayerEntity p : players) tickPlayer(server, p);
+            Story.tick(server);
             if (!NEED_SYNC.isEmpty()) {
                 for (ServerPlayerEntity p : players) if (NEED_SYNC.remove(p.getUuid())) doSync(p);
                 NEED_SYNC.clear();
@@ -295,7 +299,7 @@ public class BodyTradeMod implements ModInitializer {
         });
 
         // при выходе игрока чистим его данные в памяти (важно для долгой игры на сервере с друзьями)
-        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> forget(handler.player.getUuid()));
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> { Story.onDisconnect(server, handler.player); forget(handler.player.getUuid()); });
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPED.register(server -> forgetAll());
         ServerPlayNetworking.registerGlobalReceiver(CONVERT_PACKET, (server, player, h, buf, resp) -> {
             BlockPos pos = buf.readBlockPos();
@@ -346,6 +350,7 @@ public class BodyTradeMod implements ModInitializer {
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, be) -> {
             if (player instanceof ServerPlayerEntity sp) {
                 nerveUse(sp, Hand.MAIN_HAND, "ломаете блок");
+                Story.onBlockBroken(sp, state);
                 if (world instanceof ServerWorld sw) drillBreak(sp, sw, pos);
             }
         });
@@ -860,6 +865,7 @@ public class BodyTradeMod implements ModInitializer {
         LAST_FALL.clear(); LAST_FOOD.clear(); LAST_JUMP.clear(); LAST_WALK.clear(); NERVE_CD.clear(); LAST_HASH.clear(); LAST_SANITY.clear();
         LAST_BLADE.clear(); LAST_DECAY.clear(); FUEL.clear(); CRAWLERS.clear(); LAST_FACE.clear(); NEED_SYNC.clear();
         VoiceState.clear();
+        Story.clear();
     }
 
     /** Синтезатор жизни: алмазы -> частицы жизни по курсу 1:1 (amount = 0 - обменять все). */

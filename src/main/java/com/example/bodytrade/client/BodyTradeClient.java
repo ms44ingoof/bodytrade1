@@ -3,6 +3,7 @@ package com.example.bodytrade.client;
 import com.example.bodytrade.AdminBlock;
 import com.example.bodytrade.BodyPart;
 import com.example.bodytrade.BodyTradeMod;
+import com.example.bodytrade.Story;
 import com.example.bodytrade.TradeBlock;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -93,6 +94,7 @@ public class BodyTradeClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        EntityRendererRegistry.register(Story.DOCTOR, DoctorRenderer::new);
         EntityRendererRegistry.register(BodyTradeMod.SMILER, ctx ->
                 new BillboardRenderer(ctx, new Identifier(BodyTradeMod.ID, "textures/entity/smiler.png"), 1.15f, 2.0f));
         EntityRendererRegistry.register(BodyTradeMod.SCREAMER, ctx ->
@@ -177,6 +179,14 @@ public class BodyTradeClient implements ClientModInitializer {
             client.execute(() -> sanity = v);
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(Story.OPEN_PACKET, (client, handler, buf, sender) ->
+                {
+                    boolean open = buf.readBoolean();
+                    client.execute(() -> {
+                        if (open) { if (!(client.currentScreen instanceof DoctorScreen)) client.setScreen(new DoctorScreen()); }
+                        else if (client.currentScreen instanceof DoctorScreen) client.setScreen(null);
+                    });
+                });
         ClientPlayNetworking.registerGlobalReceiver(BodyTradeMod.MODE_OPEN_PACKET, (client, handler, buf, sender) ->
                 client.execute(() -> client.setScreen(new ModeScreen())));
 

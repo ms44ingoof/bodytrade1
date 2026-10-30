@@ -23,6 +23,7 @@ public class BodyState extends PersistentState {
     private final Map<UUID, int[]> taskBase = new HashMap<>();   // стартовое значение счётчика каждого задания (-1 - ещё не задано)
     private final Map<UUID, int[]> taskDone = new HashMap<>();   // 1 - задание выполнено
     private final Map<UUID, int[]> upgrades = new HashMap<>();   // уровни апгрейдов (индекс = Upgrade.ordinal())
+    private final Map<UUID, Integer> story = new HashMap<>();    // этап сюжета (см. Story): нет записи = сюжета нет
 
     public static BodyState of(MinecraftServer server) {
         return server.getOverworld().getPersistentStateManager().getOrCreate(BodyState::fromNbt, BodyState::new, "bodytrade");
@@ -32,6 +33,8 @@ public class BodyState extends PersistentState {
     public void add(UUID id, BodyPart p) { get(id).add(p); markDirty(); }
     public void remove(UUID id, BodyPart p) { get(id).remove(p); markDirty(); }
     public void clear(UUID id) { get(id).clear(); pros(id).clear(); effects(id).clear(); markDirty(); }
+    public int story(UUID id) { return story.getOrDefault(id, Story.NONE); }
+    public void setStory(UUID id, int v) { story.put(id, v); markDirty(); }
     public boolean markGaveBlock(UUID id) { if (gaveBlock.add(id)) { markDirty(); return true; } return false; }
 
     public int sanity(UUID id) { return sanity.getOrDefault(id, 1000); }
@@ -143,6 +146,9 @@ public class BodyState extends PersistentState {
         NbtList ga = new NbtList();
         for (UUID id : gaveAltar) ga.add(NbtString.of(id.toString()));
         nbt.put("gaveAltar", ga);
+        NbtCompound stc = new NbtCompound();
+        story.forEach((id, v) -> stc.putInt(id.toString(), v));
+        nbt.put("story", stc);
         nbt.put("sanity", sn);
         nbt.put("implants", im);
         nbt.put("lore", lr);
@@ -188,6 +194,8 @@ public class BodyState extends PersistentState {
             s.implants.put(UUID.fromString(key), map);
         }
         for (String key : lr.getKeys()) { Set<String> set = new HashSet<>(); NbtList l = lr.getList(key, NbtElement.STRING_TYPE); for (int i = 0; i < l.size(); i++) set.add(l.getString(i)); s.lore.put(UUID.fromString(key), set); }
+        NbtCompound stc = nbt.getCompound("story");
+        for (String key : stc.getKeys()) s.story.put(UUID.fromString(key), stc.getInt(key));
         return s;
     }
 }

@@ -22,5 +22,6 @@
   "item.bodytrade.spectral_prism": "Spectral Prism",
   "key.bodytrade.esp": "Cyber Eye highlight: toggle",
   "block.bodytrade.life_converter": "Life Synthesizer",
-  "item.bodytrade.flash_mech_ear": "Flash Drive: Mechanical Ear"
+  "item.bodytrade.flash_mech_ear": "Flash Drive: Mechanical Ear",
+  "entity.bodytrade.doctor": "Doctor"
 }
