@@ -20,5 +20,7 @@
   "item.bodytrade.selenite": "Селенит",
   "block.bodytrade.selenite_ore": "Селенитовая руда",
   "item.bodytrade.spectral_prism": "Спектральная призма",
-  "key.bodytrade.esp": "Подсветка кибер-глаза: включить/выключить"
+  "key.bodytrade.esp": "Подсветка кибер-глаза: включить/выключить",
+  "block.bodytrade.life_converter": "Синтезатор жизни",
+  "item.bodytrade.flash_mech_ear": "Флешка «Механическое ухо»"
 }

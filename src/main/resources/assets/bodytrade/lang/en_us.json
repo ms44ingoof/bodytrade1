@@ -20,5 +20,7 @@
   "item.bodytrade.selenite": "Selenite",
   "block.bodytrade.selenite_ore": "Selenite Ore",
   "item.bodytrade.spectral_prism": "Spectral Prism",
-  "key.bodytrade.esp": "Cyber Eye highlight: toggle"
+  "key.bodytrade.esp": "Cyber Eye highlight: toggle",
+  "block.bodytrade.life_converter": "Life Synthesizer",
+  "item.bodytrade.flash_mech_ear": "Flash Drive: Mechanical Ear"
 }

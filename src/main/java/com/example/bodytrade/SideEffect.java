@@ -67,6 +67,8 @@ public enum SideEffect {
 
     private static final Map<UUID, Integer> SEIZURE_END = new HashMap<>();
 
+    static void forget(UUID id) { SEIZURE_END.remove(id); }
+
     private static void fx(ServerPlayerEntity p, StatusEffect e, int ticks, int amp) {
         p.addStatusEffect(new StatusEffectInstance(e, ticks, amp, true, false, true));
     }

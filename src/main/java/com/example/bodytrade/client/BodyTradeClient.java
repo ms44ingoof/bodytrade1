@@ -51,7 +51,8 @@ public class BodyTradeClient implements ClientModInitializer {
     public static int sanity = 1000;
     /** Таймер распада: секунды до следующего удара; -1 - нет режима, -2 - отключён имплантом. */
     public static int decay = -1;
-    public static final Set<String> IMPLANTS = new HashSet<>();
+    /** Установленные импланты: id -> уровень. */
+    public static final Map<String, Integer> IMPLANTS = new HashMap<>();
     public static final Set<String> LORE = new HashSet<>();
     public static KeyBinding DRILL_KEY;
 
@@ -106,6 +107,7 @@ public class BodyTradeClient implements ClientModInitializer {
         com.example.bodytrade.UpgradeItem.CLIENT_OPEN = () -> MinecraftClient.getInstance().setScreen(new UpgradeScreen());
         net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents.LAST.register(OreEsp::render);
         ClientTickEvents.END_CLIENT_TICK.register(OreEsp::tick);
+        com.example.bodytrade.ConverterBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new ConverterScreen(pos));
         com.example.bodytrade.DevBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new DevScreen(pos));
         TradeBlock.CLIENT_OPEN = pos -> MinecraftClient.getInstance().setScreen(new TradeScreen(pos));
 
@@ -131,8 +133,8 @@ public class BodyTradeClient implements ClientModInitializer {
             for (int i = 0; i < nu; i++) up[i] = buf.readVarInt();
             boolean dOn = buf.readBoolean();
             int implCount = buf.readVarInt();
-            Set<String> implSet = new HashSet<>();
-            for (int i = 0; i < implCount; i++) implSet.add(buf.readString());
+            Map<String, Integer> implSet = new HashMap<>();
+            for (int i = 0; i < implCount; i++) { String ik = buf.readString(); implSet.put(ik, buf.readVarInt()); }
             int loreCount = buf.readVarInt();
             Set<String> loreSet = new HashSet<>();
             for (int i = 0; i < loreCount; i++) loreSet.add(buf.readString());
@@ -140,7 +142,7 @@ public class BodyTradeClient implements ClientModInitializer {
             final int[] ftp = tp; final boolean[] ftd = td;
             client.execute(() -> {
                 develop = dev; taskProg = ftp; taskDone = ftd; upgrades = up; drillOn = dOn;
-                espOn = eOn; IMPLANTS.clear(); IMPLANTS.addAll(implSet); LORE.clear(); LORE.addAll(loreSet);
+                espOn = eOn; IMPLANTS.clear(); IMPLANTS.putAll(implSet); LORE.clear(); LORE.addAll(loreSet);
                 MISSING.clear(); MISSING.addAll(set);
                 PROSTHETIC.clear(); PROSTHETIC.addAll(pset);
                 EFFECTS.clear();

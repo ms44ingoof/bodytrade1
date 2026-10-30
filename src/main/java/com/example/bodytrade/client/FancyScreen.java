@@ -51,7 +51,7 @@ public abstract class FancyScreen extends Screen {
         // текст обычных кнопок рисуется чуть "ближе" к экрану, поэтому всё наше поднимаем выше него по оси Z
         ctx.getMatrices().push();
         ctx.getMatrices().translate(0.0, 0.0, 5.0);
-        for (ButtonWidget b : fancy) drawFancyButton(ctx, b, mx, my);
+        for (ButtonWidget b : fancy) if (b.visible) drawFancyButton(ctx, b, mx, my);
         ctx.drawCenteredTextWithShadow(textRenderer, title, width / 2, py + 9, 0xFFFFFFFF);
         drawContent(ctx, mx, my, delta);
         ctx.getMatrices().pop();

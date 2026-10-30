@@ -18,7 +18,7 @@ public class BodyState extends PersistentState {
     private final Set<UUID> gaveAltar = new HashSet<>();
     private final Map<UUID, Integer> decay = new HashMap<>();           // тики до следующего "распада" (режим Перерождение)
     private final Map<UUID, Integer> sanity = new HashMap<>();          // рассудок в десятых долях процента (0..1000)
-    private final Map<UUID, Set<String>> implants = new HashMap<>();     // id установленных имплантов
+    private final Map<UUID, Map<String, Integer>> implants = new HashMap<>(); // импланты: id -> уровень
     private final Map<UUID, Set<String>> lore = new HashMap<>();         // открытые записи энциклопедии
     private final Map<UUID, int[]> taskBase = new HashMap<>();   // стартовое значение счётчика каждого задания (-1 - ещё не задано)
     private final Map<UUID, int[]> taskDone = new HashMap<>();   // 1 - задание выполнено
@@ -36,8 +36,10 @@ public class BodyState extends PersistentState {
 
     public int sanity(UUID id) { return sanity.getOrDefault(id, 1000); }
     public void setSanity(UUID id, int v) { sanity.put(id, Math.max(0, Math.min(1000, v))); markDirty(); }
-    public Set<String> implants(UUID id) { return implants.computeIfAbsent(id, k -> new HashSet<>()); }
-    public boolean hasImplant(UUID id, String key) { return implants(id).contains(key); }
+    public Map<String, Integer> implantMap(UUID id) { return implants.computeIfAbsent(id, k -> new HashMap<>()); }
+    public int implantLevel(UUID id, String key) { return implantMap(id).getOrDefault(key, 0); }
+    public void setImplantLevel(UUID id, String key, int lv) { if (lv <= 0) implantMap(id).remove(key); else implantMap(id).put(key, lv); markDirty(); }
+    public boolean hasImplant(UUID id, String key) { return implantLevel(id, key) > 0; }
     public Set<String> lore(UUID id) { return lore.computeIfAbsent(id, k -> new HashSet<>()); }
     /** true, если запись открыта впервые. */
     public boolean unlock(UUID id, String key) { if (lore(id).add(key)) { markDirty(); return true; } return false; }
@@ -130,7 +132,7 @@ public class BodyState extends PersistentState {
         nbt.put("upgrades", up);
         NbtCompound sn = new NbtCompound(), im = new NbtCompound(), lr = new NbtCompound();
         sanity.forEach((id, v) -> sn.putInt(id.toString(), v));
-        implants.forEach((id, set) -> { NbtList l = new NbtList(); for (String k : set) l.add(NbtString.of(k)); im.put(id.toString(), l); });
+        implants.forEach((id, map) -> { NbtCompound c = new NbtCompound(); map.forEach((k, v) -> c.putInt(k, v)); im.put(id.toString(), c); });
         lore.forEach((id, set) -> { NbtList l = new NbtList(); for (String k : set) l.add(NbtString.of(k)); lr.put(id.toString(), l); });
         NbtCompound dc = new NbtCompound();
         decay.forEach((id, v) -> dc.putInt(id.toString(), v));
@@ -178,7 +180,13 @@ public class BodyState extends PersistentState {
         for (int i = 0; i < ga.size(); i++) s.gaveAltar.add(UUID.fromString(ga.getString(i)));
         NbtCompound dc = nbt.getCompound("decay");
         for (String key : dc.getKeys()) s.decay.put(UUID.fromString(key), dc.getInt(key));
-        for (String key : im.getKeys()) { Set<String> set = new HashSet<>(); NbtList l = im.getList(key, NbtElement.STRING_TYPE); for (int i = 0; i < l.size(); i++) set.add(l.getString(i)); s.implants.put(UUID.fromString(key), set); }
+        for (String key : im.getKeys()) {
+            Map<String, Integer> map = new HashMap<>();
+            NbtElement el = im.get(key);
+            if (el instanceof NbtList l) { for (int i = 0; i < l.size(); i++) map.put(l.getString(i), 1); }   // старый формат: просто список
+            else if (el instanceof NbtCompound c) { for (String k : c.getKeys()) map.put(k, c.getInt(k)); }
+            s.implants.put(UUID.fromString(key), map);
+        }
         for (String key : lr.getKeys()) { Set<String> set = new HashSet<>(); NbtList l = lr.getList(key, NbtElement.STRING_TYPE); for (int i = 0; i < l.size(); i++) set.add(l.getString(i)); s.lore.put(UUID.fromString(key), set); }
         return s;
     }

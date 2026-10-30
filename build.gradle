@@ -2,11 +2,16 @@ plugins { id 'fabric-loom' version '1.6-SNAPSHOT'; id 'maven-publish' }
 version = project.mod_version
 group = project.maven_group
 base { archivesName = project.archives_base_name }
+repositories {
+  maven { url = 'https://maven.maxhenkel.de/repository/public' } // API мода Simple Voice Chat
+}
 dependencies {
   minecraft "com.mojang:minecraft:${project.minecraft_version}"
   mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
   modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
   modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+  // только для компиляции: сам Simple Voice Chat ставится отдельным модом
+  compileOnly "de.maxhenkel.voicechat:voicechat-api:${project.voicechat_api_version}"
 }
 processResources {
   inputs.property "version", project.version

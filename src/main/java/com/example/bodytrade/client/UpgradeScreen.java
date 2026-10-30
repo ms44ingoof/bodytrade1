@@ -260,7 +260,15 @@ public class UpgradeScreen extends FancyScreen {
             Upgrade r = Upgrade.byId(u.requiresId);
             ctx.drawTextWithShadow(textRenderer, "Откроется: «" + r.nom + "» до " + u.requiresLevel + " ур.", dx, py + ph - 20, 0xFFFF6B6B);
         } else if (lv < u.max()) {
-            ctx.drawTextWithShadow(textRenderer, "Следующий уровень: " + u.costs[lv] + " ч. жизни", dx, py + ph - 20, 0xFFE8D28A);
+            String nt = "Следующий уровень: " + u.costs[lv] + " ч. жизни";
+            ctx.drawTextWithShadow(textRenderer, nt, dx, py + ph - 20, 0xFFE8D28A);
+            int ix = dx + textRenderer.getWidth(nt) + 10;
+            for (ItemStack k : u.extraCost()) {
+                ctx.drawItem(k, ix, py + ph - 24);
+                String t = "×" + k.getCount();
+                ctx.drawTextWithShadow(textRenderer, t, ix + 17, py + ph - 20, 0xFFE8D28A);
+                ix += 17 + textRenderer.getWidth(t) + 8;
+            }
         } else {
             ctx.drawTextWithShadow(textRenderer, "Максимальный уровень достигнут", dx, py + ph - 20, 0xFF77FF88);
         }

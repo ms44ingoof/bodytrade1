@@ -29,7 +29,11 @@ public final class OreEsp {
 
     private record Ore(int x, int y, int z, int rgb) {}
 
-    private static final int RADIUS = 18;
+    /** Радиус подсветки по уровню кибер-глаза: 4 / 8 / 16 блоков. */
+    private static int radius() {
+        int lv = BodyTradeClient.IMPLANTS.getOrDefault("cyber_eye", 0);
+        return new int[]{0, 4, 8, 16}[Math.max(0, Math.min(3, lv))];
+    }
     private static final Map<Block, Integer> COLORS = new HashMap<>();
     private static volatile List<Ore> cache = List.of();
 
@@ -46,7 +50,7 @@ public final class OreEsp {
     }
 
     private static boolean active() {
-        return BodyTradeClient.IMPLANTS.contains("cyber_eye") && BodyTradeClient.espOn
+        return BodyTradeClient.IMPLANTS.getOrDefault("cyber_eye", 0) > 0 && BodyTradeClient.espOn
                 && !(BodyTradeClient.MISSING.contains(BodyPart.LEFT_EYE) && BodyTradeClient.MISSING.contains(BodyPart.RIGHT_EYE));
     }
 
@@ -54,14 +58,15 @@ public final class OreEsp {
     public static void tick(MinecraftClient mc) {
         if (mc.player == null || mc.world == null || !active()) { cache = List.of(); return; }
         if (mc.player.age % 30 != 0) return;
+        int R = radius();
         BlockPos c = mc.player.getBlockPos();
         List<Ore> list = new ArrayList<>();
         BlockPos.Mutable mp = new BlockPos.Mutable();
         Block neurite = BodyTradeMod.NEURITE_ORE, selenite = BodyTradeMod.SELENITE_ORE;
         outer:
-        for (int dx = -RADIUS; dx <= RADIUS; dx++)
-            for (int dy = -RADIUS; dy <= RADIUS; dy++)
-                for (int dz = -RADIUS; dz <= RADIUS; dz++) {
+        for (int dx = -R; dx <= R; dx++)
+            for (int dy = -R; dy <= R; dy++)
+                for (int dz = -R; dz <= R; dz++) {
                     mp.set(c.getX() + dx, c.getY() + dy, c.getZ() + dz);
                     BlockState s = mc.world.getBlockState(mp);
                     if (s.isAir()) continue;

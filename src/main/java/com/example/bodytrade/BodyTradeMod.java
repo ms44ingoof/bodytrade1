@@ -118,10 +118,13 @@ public class BodyTradeMod implements ModInitializer {
     private static final Set<Item> SOFT_FOOD = Set.of(Items.MUSHROOM_STEW, Items.BEETROOT_SOUP, Items.RABBIT_STEW,
             Items.SUSPICIOUS_STEW, Items.HONEY_BOTTLE, Items.MELON_SLICE, Items.SWEET_BERRIES, Items.GLOW_BERRIES, Items.PUMPKIN_PIE);
 
-    public static Block TRADE_BLOCK, ADMIN_BLOCK, DEV_BLOCK, NEURITE_ORE, SELENITE_ORE;
+    public static Block TRADE_BLOCK, ADMIN_BLOCK, DEV_BLOCK, NEURITE_ORE, SELENITE_ORE, LIFE_CONVERTER;
     public static Item LIFE_PARTICLE, UPGRADE_DEVICE, NEURITE, SELENITE, SPECTRAL_PRISM;
-    public static Item FLASH_CYBER_EYE, FLASH_LANTERN, FLASH_BLADE_ARM, FLASH_TITAN_BONES, FLASH_NEUROCHIP, FLASH_CHRONO, FLASH_STASIS;
+    public static Item FLASH_CYBER_EYE, FLASH_LANTERN, FLASH_BLADE_ARM, FLASH_TITAN_BONES, FLASH_NEUROCHIP, FLASH_CHRONO, FLASH_STASIS, FLASH_MECH_EAR;
     public static final Identifier DECAY_PACKET = new Identifier(ID, "decay");
+    public static final Identifier CONVERT_PACKET = new Identifier(ID, "convert");
+    /** Игроки, которым нужно отправить обновлённое состояние (объединяем запросы за тик, чтобы не спамить пакетами). */
+    private static final Set<UUID> NEED_SYNC = new HashSet<>();
     private static final Map<UUID, Integer> LAST_DECAY = new HashMap<>();
     private static final Map<UUID, Integer> LAST_HASH = new HashMap<>();
     private static final Map<UUID, Integer> LAST_SANITY = new HashMap<>();
@@ -165,6 +168,11 @@ public class BodyTradeMod implements ModInitializer {
         FLASH_NEUROCHIP = Registry.register(Registries.ITEM, new Identifier(ID, "flash_neurochip"), new Item(new FabricItemSettings().maxCount(16)));
         FLASH_CHRONO = Registry.register(Registries.ITEM, new Identifier(ID, "flash_chrono"), new Item(new FabricItemSettings().maxCount(16)));
         FLASH_STASIS = Registry.register(Registries.ITEM, new Identifier(ID, "flash_stasis"), new Item(new FabricItemSettings().maxCount(16)));
+        FLASH_MECH_EAR = Registry.register(Registries.ITEM, new Identifier(ID, "flash_mech_ear"), new Item(new FabricItemSettings().maxCount(16)));
+        // Синтезатор жизни: очень дорогой блок, обменивает алмазы на частицы жизни 1:1
+        LIFE_CONVERTER = Registry.register(Registries.BLOCK, new Identifier(ID, "life_converter"),
+                new ConverterBlock(FabricBlockSettings.create().strength(5.0f)));
+        Registry.register(Registries.ITEM, new Identifier(ID, "life_converter"), new BlockItem(LIFE_CONVERTER, new FabricItemSettings()));
         // генерация руды в новых чанках Верхнего мира (на глубине от -60 до 16)
         BiomeModifications.addFeature(BiomeSelectors.foundInOverworld(), GenerationStep.Feature.UNDERGROUND_ORES,
                 RegistryKey.of(RegistryKeys.PLACED_FEATURE, new Identifier(ID, "neurite_ore")));
@@ -182,7 +190,7 @@ public class BodyTradeMod implements ModInitializer {
         FabricDefaultAttributeRegistry.register(SCREAMER, HallucinationEntity.createAttributes());
 
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> { e.add(TRADE_BLOCK); e.add(ADMIN_BLOCK); e.add(DEV_BLOCK); e.add(UPGRADE_DEVICE); e.add(LIFE_PARTICLE); e.add(NEURITE_ORE); e.add(NEURITE); e.add(SELENITE_ORE); e.add(SELENITE); e.add(SPECTRAL_PRISM);
-            e.add(FLASH_CYBER_EYE); e.add(FLASH_LANTERN); e.add(FLASH_BLADE_ARM); e.add(FLASH_TITAN_BONES); e.add(FLASH_NEUROCHIP); e.add(FLASH_CHRONO); e.add(FLASH_STASIS); });
+            e.add(FLASH_CYBER_EYE); e.add(FLASH_LANTERN); e.add(FLASH_BLADE_ARM); e.add(FLASH_TITAN_BONES); e.add(FLASH_NEUROCHIP); e.add(FLASH_CHRONO); e.add(FLASH_STASIS); e.add(FLASH_MECH_EAR); e.add(LIFE_CONVERTER); });
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity p = handler.player;
@@ -278,7 +286,21 @@ public class BodyTradeMod implements ModInitializer {
                         }))));
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
-            for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) tickPlayer(server, p);
+            var players = server.getPlayerManager().getPlayerList();
+            for (ServerPlayerEntity p : players) tickPlayer(server, p);
+            if (!NEED_SYNC.isEmpty()) {
+                for (ServerPlayerEntity p : players) if (NEED_SYNC.remove(p.getUuid())) doSync(p);
+                NEED_SYNC.clear();
+            }
+        });
+
+        // при выходе игрока чистим его данные в памяти (важно для долгой игры на сервере с друзьями)
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> forget(handler.player.getUuid()));
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPED.register(server -> forgetAll());
+        ServerPlayNetworking.registerGlobalReceiver(CONVERT_PACKET, (server, player, h, buf, resp) -> {
+            BlockPos pos = buf.readBlockPos();
+            int amount = buf.readVarInt();
+            server.execute(() -> handleConvert(server, player, pos, amount));
         });
 
         // Рот / язык / гортань: нельзя говорить в чате
@@ -459,7 +481,10 @@ public class BodyTradeMod implements ModInitializer {
     }
 
     // ---------------------------------------------------------------- сеть
-    public static void sync(ServerPlayerEntity p) {
+    /** Просит отправить игроку актуальное состояние (будет отправлено один раз в конце тика). */
+    public static void sync(ServerPlayerEntity p) { NEED_SYNC.add(p.getUuid()); }
+
+    private static void doSync(ServerPlayerEntity p) {
         MinecraftServer s = p.getServer();
         BodyState st = BodyState.of(s);
         long now = s.getOverworld().getTime();
@@ -493,9 +518,9 @@ public class BodyTradeMod implements ModInitializer {
         buf.writeVarInt(lv.length);
         for (int x : lv) buf.writeVarInt(x);
         buf.writeBoolean(st.isDrillOn(p.getUuid()));
-        Set<String> imp = st.implants(p.getUuid());
+        Map<String, Integer> imp = st.implantMap(p.getUuid());
         buf.writeVarInt(imp.size());
-        for (String k : imp) buf.writeString(k);
+        for (Map.Entry<String, Integer> ie : imp.entrySet()) { buf.writeString(ie.getKey()); buf.writeVarInt(ie.getValue()); }
         Set<String> lor = st.lore(p.getUuid());
         buf.writeVarInt(lor.size());
         for (String k : lor) buf.writeString(k);
@@ -534,12 +559,11 @@ public class BodyTradeMod implements ModInitializer {
             LAST_HASH.remove(id);
             // блоки ставятся прямо рядом с игроком (если места нет - попадают в инвентарь)
             if (!placeNear(p, DEV_BLOCK, 0)) p.getInventory().offerOrDrop(new ItemStack(DEV_BLOCK));
-            if (p.getInventory().count(UPGRADE_DEVICE) == 0) p.getInventory().offerOrDrop(new ItemStack(UPGRADE_DEVICE));
             st.setDecay(id, BodyState.DECAY_TICKS);
             LAST_DECAY.remove(id);
             title(p, Text.literal("Перерождение").formatted(Formatting.GREEN), Text.literal("Вы лишились всех конечностей").formatted(Formatting.GRAY));
             p.sendMessage(Text.literal("Режим «Перерождение»: у вас нет рук и ног. Выполняйте задания в любом порядке (список: кнопка «Задания» в инвентаре), "
-                    + "получайте частицы жизни и покупайте конечности в Блоке развития, а улучшения органов в Модуле апгрейда. Оба блока стоят рядом с вами.")
+                    + "получайте частицы жизни и покупайте конечности в Блоке развития (он стоит рядом с вами). Для улучшений органов скрафтите Модуль апгрейда (рецепт в книге рецептов).")
                     .formatted(Formatting.GREEN));
         } else {
             st.setDevelop(id, false);
@@ -742,7 +766,14 @@ public class BodyTradeMod implements ModInitializer {
             p.sendMessage(Text.literal("Не хватает частиц жизни: нужно " + cost + ".").formatted(Formatting.RED));
             return;
         }
+        for (ItemStack extra : u.extraCost()) {
+            if (p.getInventory().count(extra.getItem()) < extra.getCount()) {
+                p.sendMessage(Text.literal("Для этого уровня нужно также: " + extra.getCount() + " × ").append(extra.getName()).formatted(Formatting.RED));
+                return;
+            }
+        }
         removeItems(p, LIFE_PARTICLE, cost);
+        for (ItemStack extra : u.extraCost()) removeItems(p, extra.getItem(), extra.getCount());
         lv[u.ordinal()] = cur + 1;
         st.markDirty();
         title(p, Text.literal("Улучшено: " + u.nom).formatted(Formatting.AQUA), Text.literal("Уровень " + (cur + 1) + " из " + u.max()).formatted(Formatting.GRAY));
@@ -816,6 +847,37 @@ public class BodyTradeMod implements ModInitializer {
         }
     }
 
+    // ---------------------------------------------------------------- очистка памяти, конвертер
+    private static void forget(UUID id) {
+        LAST_FALL.remove(id); LAST_FOOD.remove(id); LAST_JUMP.remove(id); LAST_WALK.remove(id); NERVE_CD.remove(id);
+        LAST_HASH.remove(id); LAST_SANITY.remove(id); LAST_BLADE.remove(id); LAST_DECAY.remove(id); FUEL.remove(id);
+        CRAWLERS.remove(id); LAST_FACE.remove(id); NEED_SYNC.remove(id);
+        VoiceState.remove(id);
+        SideEffect.forget(id);
+    }
+
+    private static void forgetAll() {
+        LAST_FALL.clear(); LAST_FOOD.clear(); LAST_JUMP.clear(); LAST_WALK.clear(); NERVE_CD.clear(); LAST_HASH.clear(); LAST_SANITY.clear();
+        LAST_BLADE.clear(); LAST_DECAY.clear(); FUEL.clear(); CRAWLERS.clear(); LAST_FACE.clear(); NEED_SYNC.clear();
+        VoiceState.clear();
+    }
+
+    /** Синтезатор жизни: алмазы -> частицы жизни по курсу 1:1 (amount = 0 - обменять все). */
+    private static void handleConvert(MinecraftServer server, ServerPlayerEntity p, BlockPos pos, int amount) {
+        if (!p.getWorld().getBlockState(pos).isOf(LIFE_CONVERTER) || p.squaredDistanceTo(Vec3d.ofCenter(pos)) > 64) return;
+        if (amount < 0 || amount > 100000) return;
+        int have = p.getInventory().count(Items.DIAMOND);
+        int n = amount == 0 ? have : Math.min(amount, have);
+        if (n <= 0) {
+            p.sendMessage(Text.literal("У вас нет алмазов для обмена.").formatted(Formatting.RED), true);
+            return;
+        }
+        removeItems(p, Items.DIAMOND, n);
+        giveParticles(p, n);
+        p.getWorld().playSound(null, p.getBlockPos(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1f, 1.2f);
+        p.sendMessage(Text.literal("Обменяно: " + n + " алмазов на " + n + " частиц жизни.").formatted(Formatting.GREEN), true);
+    }
+
     // ---------------------------------------------------------------- рассудок, импланты, энциклопедия
     private static void unlock(ServerPlayerEntity p, BodyState st, String key, String title) {
         if (st.unlock(p.getUuid(), key)) p.sendMessage(Text.literal("[Энциклопедия] Новая запись: " + title).formatted(Formatting.AQUA));
@@ -880,23 +942,25 @@ public class BodyTradeMod implements ModInitializer {
         if (p.getInventory().count(UPGRADE_DEVICE) == 0) return; // нужен Модуль апгрейда в инвентаре
         BodyState st = BodyState.of(server);
         UUID id = p.getUuid();
-        Set<String> have = st.implants(id);
-        if (have.contains(im.id)) return;
+        int cur = st.implantLevel(id, im.id);
+        if (cur >= im.maxLevel()) return;
+        int particles = im.particles[cur];
         var inv = p.getInventory();
-        boolean ok = inv.count(LIFE_PARTICLE) >= im.particles;
+        boolean ok = inv.count(LIFE_PARTICLE) >= particles;
         for (ItemStack need : im.cost()) if (inv.count(need.getItem()) < need.getCount()) ok = false;
         if (!ok) {
-            p.sendMessage(Text.literal("Не хватает материалов для импланта «" + im.nom + "». Нужно: " + (im.particles > 0 ? im.particles + " ч. жизни, " : "")
+            p.sendMessage(Text.literal("Не хватает материалов для «" + im.nom + "» (уровень " + (cur + 1) + "). Нужно: " + (particles > 0 ? particles + " ч. жизни, " : "")
                     + costText(im)).formatted(Formatting.RED));
             return;
         }
-        removeItems(p, LIFE_PARTICLE, im.particles);
+        removeItems(p, LIFE_PARTICLE, particles);
         for (ItemStack need : im.cost()) removeItems(p, need.getItem(), need.getCount());
-        for (Implant o : Implant.values()) if (o != im && o.slot.equals(im.slot)) have.remove(o.id);
-        have.add(im.id);
-        st.markDirty();
-        title(p, Text.literal("Имплант установлен").formatted(Formatting.AQUA), Text.literal(im.nom).formatted(Formatting.GRAY));
+        if (cur == 0) for (Implant o : Implant.values()) if (o != im && o.slot.equals(im.slot)) st.setImplantLevel(id, o.id, 0); // один имплант на слот
+        st.setImplantLevel(id, im.id, cur + 1);
+        title(p, Text.literal(cur == 0 ? "Имплант установлен" : "Имплант улучшен").formatted(Formatting.AQUA),
+                Text.literal(im.nom + (im.maxLevel() > 1 ? ", уровень " + (cur + 1) + " из " + im.maxLevel() : "")).formatted(Formatting.GRAY));
         p.sendMessage(Text.literal(im.nom + ": " + im.desc).formatted(Formatting.AQUA));
+        VoiceState.update(p, st.functional(id).contains(BodyPart.MOUTH), st.implantLevel(id, "mech_ear"));
         sync(p);
     }
 
@@ -959,17 +1023,16 @@ public class BodyTradeMod implements ModInitializer {
     private static void implantTick(ServerPlayerEntity p, BodyState st, Set<BodyPart> m) {
         if (p.age % 20 != 0) return;
         UUID id = p.getUuid();
-        Set<String> im = st.implants(id);
-        if (im.isEmpty()) return;
         boolean eyesOk = !(m.contains(BodyPart.LEFT_EYE) && m.contains(BodyPart.RIGHT_EYE));
-        if (im.contains("cyber_eye") && eyesOk) {
-            if (st.isEspOn(id) && p.getWorld() instanceof ServerWorld w) { // контур врагов сквозь стены; руды подсвечивает клиент
-                for (HostileEntity h : w.getEntitiesByClass(HostileEntity.class, p.getBoundingBox().expand(20), e -> true))
-                    h.addStatusEffect(new StatusEffectInstance(StatusEffects.GLOWING, 40, 0, true, false, false));
-            }
+        int eye = st.implantLevel(id, "cyber_eye");
+        if (eye > 0 && eyesOk && st.isEspOn(id) && p.getWorld() instanceof ServerWorld w) {
+            // контур врагов сквозь стены; руды подсвечивает клиент. Радиус по уровням: 4 / 8 / 16 блоков
+            int r = new int[]{0, 4, 8, 16}[eye];
+            for (HostileEntity h : w.getEntitiesByClass(HostileEntity.class, p.getBoundingBox().expand(r), e -> true))
+                h.addStatusEffect(new StatusEffectInstance(StatusEffects.GLOWING, 40, 0, true, false, false));
         }
-        if (im.contains("lantern") && eyesOk && p.getWorld().getLightLevel(p.getBlockPos()) < 8) effT(p, StatusEffects.NIGHT_VISION, 260, 0);
-        if (im.contains("titan_bones")) effT(p, StatusEffects.RESISTANCE, 60, 0);
+        if (st.hasImplant(id, "lantern") && eyesOk && p.getWorld().getLightLevel(p.getBlockPos()) < 8) effT(p, StatusEffects.NIGHT_VISION, 260, 0);
+        if (st.hasImplant(id, "titan_bones")) effT(p, StatusEffects.RESISTANCE, 60, 0);
     }
 
     /** Рентген кибер-глаза: ближайшие руды в радиусе 6 блоков. */
@@ -1071,7 +1134,11 @@ public class BodyTradeMod implements ModInitializer {
         st.prune(id, now);
         Set<BodyPart> m = st.functional(id);   // без частей, заменённых протезом
         Set<BodyPart> pr = st.pros(id);
-        if (p.age % 20 == 0) devTick(p, st);
+        if (p.age % 20 == 0) {
+            // снимок для Simple Voice Chat (голосовой поток работает в другом потоке)
+            VoiceState.update(p, m.contains(BodyPart.MOUTH), st.implantLevel(id, "mech_ear"));
+            devTick(p, st);
+        }
         upgradeTick(p, st, m);
         decayTick(p, st);
         // звуки тела: сердцебиение при низком здоровье
