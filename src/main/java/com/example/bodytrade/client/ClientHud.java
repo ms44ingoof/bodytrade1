@@ -24,16 +24,24 @@ public final class ClientHud {
 
     private static int argb(int rgb, int a) { return (a << 24) | (rgb & 0xFFFFFF); }
 
+    /**
+     * Полная темнота на стороне потерянного глаза. Вызывается из InGameHudMixin в самом начале отрисовки HUD,
+     * поэтому панель предметов, сердца, голод и опыт остаются поверх темноты и читаемы.
+     */
+    public static void blackout(DrawContext ctx) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.options.hudHidden || mc.player == null) return;
+        int w = ctx.getScaledWindowWidth(), h = ctx.getScaledWindowHeight();
+        boolean le = BodyTradeClient.MISSING.contains(BodyPart.LEFT_EYE), re = BodyTradeClient.MISSING.contains(BodyPart.RIGHT_EYE);
+        if (le && !re) ctx.fill(0, 0, w / 2, h, 0xFF000000);
+        if (re && !le) ctx.fill(w / 2, 0, w, h, 0xFF000000);
+    }
+
     public static void render(DrawContext ctx) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.options.hudHidden || mc.player == null) return;
         TextRenderer tr = mc.textRenderer;
         int w = ctx.getScaledWindowWidth(), h = ctx.getScaledWindowHeight();
-
-        // полная темнота на стороне потерянного глаза
-        boolean le = BodyTradeClient.MISSING.contains(BodyPart.LEFT_EYE), re = BodyTradeClient.MISSING.contains(BodyPart.RIGHT_EYE);
-        if (le && !re) ctx.fill(0, 0, w / 2, h, 0xFF000000);
-        if (re && !le) ctx.fill(w / 2, 0, w, h, 0xFF000000);
 
         vignettes(ctx, mc, w, h);
 

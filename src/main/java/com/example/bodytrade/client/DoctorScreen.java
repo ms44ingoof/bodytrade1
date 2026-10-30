@@ -214,9 +214,9 @@ public class DoctorScreen extends Screen {
             if (dd < bd) { bd = dd; best = d; }
         }
         if (best == null) return;
-        int size = (int) (height * 0.50f);
-        int x = (int) (width * 0.45f);
-        int feetY = (int) (height * 0.08f + size * 2.05f);   // голова целиком в кадре, ниже - обрез полосой текста
+        int size = (int) (height * 0.38f);
+        int x = (int) (width * 0.24f);
+        int feetY = (int) (height * 0.12f + size * 2.05f);   // голова целиком в кадре, ниже - обрез полосой текста
         boolean nameShown = best.isCustomNameVisible();
         best.setCustomNameVisible(false);   // табличка с именем над головой в портрете не нужна
         InventoryScreen.drawEntity(ctx, x, feetY, size, (x - mx) * 0.25f, (feetY * 0.45f - my) * 0.25f, best);

@@ -51,6 +51,13 @@ public class TasksScreen extends FancyScreen {
     @Override
     public void close() { client.setScreen(parent); }
 
+    /** Та же клавиша (по умолчанию U) закрывает список заданий. */
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (BodyTradeClient.QUESTS_KEY != null && BodyTradeClient.QUESTS_KEY.matchesKey(keyCode, scanCode)) { close(); return true; }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
     @Override
     protected void drawContent(DrawContext ctx, int mx, int my, float delta) {
         if (!BodyTradeClient.develop) {

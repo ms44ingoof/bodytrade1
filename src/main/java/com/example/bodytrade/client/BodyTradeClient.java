@@ -48,6 +48,7 @@ public class BodyTradeClient implements ClientModInitializer {
     public static boolean drillOn = true;
     public static boolean espOn = true;
     public static KeyBinding ESP_KEY;
+    public static KeyBinding QUESTS_KEY;
     /** Рассудок в десятых долях процента (0..1000). */
     public static int sanity = 1000;
     /** Таймер распада: секунды до следующего удара; -1 - нет режима, -2 - отключён имплантом. */
@@ -58,6 +59,30 @@ public class BodyTradeClient implements ClientModInitializer {
     public static KeyBinding DRILL_KEY;
 
     public static int tasksDoneCount() { int c = 0; for (boolean d : taskDone) if (d) c++; return c; }
+
+    /** Прозопагнозия: у животных вместо голов - головы игроков. */
+    public static boolean prosopagnosiaActive() {
+        Long t = EFFECTS.get("Прозопагнозия");
+        return t != null && t > System.currentTimeMillis();
+    }
+
+    private static java.util.List<net.minecraft.client.network.PlayerListEntry> friends = java.util.List.of();
+    private static long friendsAt;
+
+    /** Скин головы для животного: в мультиплеере - один из других игроков (для каждого животного свой), в одиночной игре - ваш. */
+    public static net.minecraft.util.Identifier prosopagnosiaSkin(net.minecraft.entity.Entity animal) {
+        net.minecraft.client.MinecraftClient mc = net.minecraft.client.MinecraftClient.getInstance();
+        long now = System.currentTimeMillis();
+        if (now - friendsAt > 1000) {
+            friendsAt = now;
+            var h = mc.getNetworkHandler();
+            friends = h == null || mc.player == null ? java.util.List.of()
+                    : h.getPlayerList().stream().filter(e -> !e.getProfile().getId().equals(mc.player.getUuid()))
+                    .sorted(java.util.Comparator.comparing(e -> e.getProfile().getId())).toList();
+        }
+        if (friends.isEmpty()) return mc.player.getSkinTexture();
+        return friends.get(Math.floorMod(animal.getUuid().hashCode(), friends.size())).getSkinTexture();
+    }
 
     /** Деменция: все названия в игре превращаются в иероглифы. */
     public static boolean dementiaActive() {
@@ -216,6 +241,14 @@ public class BodyTradeClient implements ClientModInitializer {
             }
         });
 
+        // клавиша U (можно переназначить в настройках управления) - список заданий
+        QUESTS_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.bodytrade.quests", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_U, "key.categories.bodytrade"));
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            while (QUESTS_KEY.wasPressed()) {
+                if (mc.player != null && mc.currentScreen == null) mc.setScreen(new TasksScreen(null));
+            }
+        });
+
         // Без ступней - скольжение, как по льду
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
             var p = mc.player;
@@ -232,6 +265,13 @@ public class BodyTradeClient implements ClientModInitializer {
 
         // HUD: потери, болезни, рассудок, задания, виньетки
         HudRenderCallback.EVENT.register((ctx, delta) -> ClientHud.render(ctx));
+
+        // Прозопагнозия: слой, рисующий головы игроков на животных
+        net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback.EVENT.register((type, renderer, helper, rctx) -> {
+            var model = renderer.getModel();
+            if (model instanceof net.minecraft.client.render.entity.model.AnimalModel<?> && !(model instanceof net.minecraft.client.render.entity.model.BipedEntityModel<?>))
+                helper.register(new ProsopagnosiaFeature((net.minecraft.client.render.entity.feature.FeatureRendererContext) renderer));
+        });
 
         // Кнопка в инвентаре
         ScreenEvents.AFTER_INIT.register((client, screen, sw, sh) -> {
