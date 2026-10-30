@@ -124,7 +124,15 @@ public class DoctorScreen extends Screen {
         // лёгкое затемнение мира
         ctx.fill(0, 0, width, height, 0x38000000);
         drawDoctor(ctx, mx, my);
+        // Модель Доктора рисуется в 3D и занимает глубину по оси Z, поэтому всё остальное поднимаем выше неё,
+        // иначе скин закрывает текст и кнопки.
+        ctx.getMatrices().push();
+        ctx.getMatrices().translate(0.0, 0.0, 600.0);
+        renderOverlay(ctx, mx, my);
+        ctx.getMatrices().pop();
+    }
 
+    private void renderOverlay(DrawContext ctx, int mx, int my) {
         // нижняя тёмная полоса под текст
         int bandH = Math.min(116, (int) (height * 0.44f));
         ctx.fillGradient(0, height - bandH - 24, width, height - bandH, 0x00000000, 0x90000000);
@@ -206,9 +214,9 @@ public class DoctorScreen extends Screen {
             if (dd < bd) { bd = dd; best = d; }
         }
         if (best == null) return;
-        int size = (int) (height * 0.60f);
+        int size = (int) (height * 0.50f);
         int x = (int) (width * 0.45f);
-        int feetY = (int) (height * 0.10f + size * 1.8f);
+        int feetY = (int) (height * 0.08f + size * 2.05f);   // голова целиком в кадре, ниже - обрез полосой текста
         boolean nameShown = best.isCustomNameVisible();
         best.setCustomNameVisible(false);   // табличка с именем над головой в портрете не нужна
         InventoryScreen.drawEntity(ctx, x, feetY, size, (x - mx) * 0.25f, (feetY * 0.45f - my) * 0.25f, best);
