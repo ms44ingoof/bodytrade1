@@ -127,7 +127,7 @@ public class DoctorScreen extends Screen {
         // Модель Доктора рисуется в 3D и занимает глубину по оси Z, поэтому всё остальное поднимаем выше неё,
         // иначе скин закрывает текст и кнопки.
         ctx.getMatrices().push();
-        ctx.getMatrices().translate(0.0, 0.0, 600.0);
+        ctx.getMatrices().translate(0.0, 0.0, portraitLift() + 50.0 + portraitSize() * 1.5 + 150.0);
         renderOverlay(ctx, mx, my);
         ctx.getMatrices().pop();
     }
@@ -204,6 +204,11 @@ public class DoctorScreen extends Screen {
     }
 
     /** Рисует самого Доктора (живую сущность рядом с игроком) по пояс, как портрет. */
+    private int portraitSize() { return (int) (height * 0.26f); }
+
+    /** На сколько поднимаем модель по Z: при наклоне головы вверх-вниз часть модели уходит назад, и без подъёма её срезает глубиной экрана. */
+    private float portraitLift() { return portraitSize() * 1.5f + 80f; }
+
     private void drawDoctor(DrawContext ctx, int mx, int my) {
         MinecraftClient mc = client;
         if (mc == null || mc.world == null || mc.player == null) return;
@@ -214,12 +219,18 @@ public class DoctorScreen extends Screen {
             if (dd < bd) { bd = dd; best = d; }
         }
         if (best == null) return;
-        int size = (int) (height * 0.38f);
-        int x = (int) (width * 0.24f);
-        int feetY = (int) (height * 0.12f + size * 2.05f);   // голова целиком в кадре, ниже - обрез полосой текста
+        int size = portraitSize();
+        int x = (int) (width * 0.12f);
+        int feetY = (int) (height * 0.16f + size * 2.05f);   // голова целиком в кадре, ниже - обрез полосой текста
         boolean nameShown = best.isCustomNameVisible();
         best.setCustomNameVisible(false);   // табличка с именем над головой в портрете не нужна
-        InventoryScreen.drawEntity(ctx, x, feetY, size, (x - mx) * 0.25f, (feetY * 0.45f - my) * 0.25f, best);
+        // наклон за курсором небольшой и ограниченный, а модель поднята по Z - она не пропадает, когда мышь уходит вверх
+        float dx = Math.max(-25f, Math.min(25f, (x - mx) * 0.1f));
+        float dy = Math.max(-12f, Math.min(12f, (feetY * 0.45f - my) * 0.1f));
+        ctx.getMatrices().push();
+        ctx.getMatrices().translate(0.0, 0.0, portraitLift());
+        InventoryScreen.drawEntity(ctx, x, feetY, size, dx, dy, best);
+        ctx.getMatrices().pop();
         best.setCustomNameVisible(nameShown);
     }
 

@@ -206,6 +206,7 @@ public class BodyTradeClient implements ClientModInitializer {
                 else if (client.currentScreen instanceof UpgradeScreen u) u.refresh();
                 else if (client.currentScreen instanceof ImplantScreen im) im.refresh();
                 else if (client.currentScreen instanceof TasksScreen ts) ts.refresh();
+                else if (client.currentScreen instanceof ReturnScreen rs) rs.refresh();
             });
         });
 
@@ -328,16 +329,7 @@ public class BodyTradeClient implements ClientModInitializer {
 
         // Кнопка в инвентаре
         ScreenEvents.AFTER_INIT.register((client, screen, sw, sh) -> {
-            if (screen instanceof InventoryScreen) {
-                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Болезни и части тела"),
-                        b -> client.setScreen(new InfoScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 80, 110, 20).build());
-                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Рецепты"),
-                        b -> client.setScreen(new RecipesScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 8, 110, 20).build());
-                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Энциклопедия"),
-                        b -> client.setScreen(new EncyclopediaScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 32, 110, 20).build());
-                Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Задания"),
-                        b -> client.setScreen(new TasksScreen(screen))).dimensions(sw / 2 - 88 - 116, sh / 2 - 56, 110, 20).build());
-            }
+            if (screen instanceof InventoryScreen) InventoryButtons.install(client, screen);
         });
     }
 }

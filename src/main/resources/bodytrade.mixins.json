@@ -12,7 +12,8 @@
     "AnimalModelAccessor",
     "ModelPartAccessor",
     "GameRendererAccessor",
-    "EntityRendererMixin"
+    "EntityRendererMixin",
+    "HandledScreenAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

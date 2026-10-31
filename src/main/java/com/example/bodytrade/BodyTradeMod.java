@@ -77,6 +77,8 @@ public class BodyTradeMod implements ModInitializer {
     public static final String ID = "bodytrade";
     public static final Identifier TRADE_PACKET = new Identifier(ID, "trade");
     public static final Identifier RETURN_PACKET = new Identifier(ID, "return");
+    /** Возврат потери прямо из инвентаря (только в режиме Перерождение). */
+    public static final Identifier INV_RETURN_PACKET = new Identifier(ID, "inv_return");
     public static final Identifier SYNC_PACKET = new Identifier(ID, "sync");
     public static final Identifier LIMBS_PACKET = new Identifier(ID, "limbs");
     public static final Identifier ADMIN_PACKET = new Identifier(ID, "admin");
@@ -233,6 +235,10 @@ public class BodyTradeMod implements ModInitializer {
             BlockPos pos = buf.readBlockPos();
             BodyPart part = BodyPart.byId(buf.readString());
             server.execute(() -> handleReturn(server, player, pos, part));
+        });
+        ServerPlayNetworking.registerGlobalReceiver(INV_RETURN_PACKET, (server, player, h, buf, resp) -> {
+            BodyPart part = BodyPart.byId(buf.readString());
+            server.execute(() -> handleInvReturn(server, player, part));
         });
         ServerPlayNetworking.registerGlobalReceiver(ADMIN_PACKET, (server, player, h, buf, resp) -> {
             BlockPos pos = buf.readBlockPos();
@@ -414,6 +420,28 @@ public class BodyTradeMod implements ModInitializer {
         st.removePros(p.getUuid(), part);
         title(p, Text.literal("Вы вернули: " + part.nom.toLowerCase()).formatted(Formatting.GREEN), Text.literal("Последствия сняты").formatted(Formatting.GRAY));
         p.sendMessage(Text.literal("Часть тела возвращена: " + part.nom + ". Связанные последствия исчезли.").formatted(Formatting.GREEN));
+        sync(p);
+        broadcastLimbs(server, p);
+    }
+
+    /** Возврат потери из инвентаря: конечности за частицы жизни (цены блока развития), остальное за предметы своей ценности. */
+    private static void handleInvReturn(MinecraftServer server, ServerPlayerEntity p, BodyPart part) {
+        if (part == null) return;
+        BodyState st = BodyState.of(server);
+        UUID id = p.getUuid();
+        if (!st.isDevelop(id) || !st.get(id).contains(part)) return;
+        boolean life = DevTasks.PRICES.containsKey(part);
+        Item item = life ? LIFE_PARTICLE : part.tier.refundItem;
+        int need = life ? DevTasks.PRICES.get(part) : part.tier.refundCount;
+        if (p.getInventory().count(item) < need) {
+            p.sendMessage(Text.literal("Не хватает: нужно " + need + " × ").append(new ItemStack(item).getName()).formatted(Formatting.RED));
+            return;
+        }
+        removeItems(p, item, need);
+        st.remove(id, part);
+        st.removePros(id, part);
+        title(p, Text.literal("Вы вернули: " + part.nom.toLowerCase()).formatted(Formatting.GREEN), Text.literal("Последствия сняты").formatted(Formatting.GRAY));
+        p.sendMessage(Text.literal("Часть тела возвращена: " + part.nom + ".").formatted(Formatting.GREEN));
         sync(p);
         broadcastLimbs(server, p);
     }
