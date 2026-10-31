@@ -45,6 +45,9 @@ public enum SideEffect {
     EPILEPSY("Эпилепсия", "Внезапные припадки: вас трясёт, предметы выпадают из рук.", 240),
     DEMENTIA("Деменция", "Вы забываете слова: все названия в игре превращаются в иероглифы.", 180),
     INCONTINENCE("Недержание", "Вы не можете себя контролировать, а окружающим становится дурно от запаха.", 180),
+    ACHROMATOPSIA("Ахроматопсия", "Мир теряет цвета: вы видите всё в оттенках серого.", 240),
+    CAPGRAS("Синдром Капгра", "Вам кажется, что людей подменили двойниками: имена над ними не те.", 240),
+    TREMOR("Тремор", "Руки и голова дрожат: целиться и копать трудно.", 240),
     PROSOPAGNOSIA("Прозопагнозия", "Вы не узнаёте лиц: вместо морд животных вы видите чьи-то головы.", 240),
     NERVE_LEFT_ARM("Оголённый нерв (левая рука)", "Любое действие левой рукой причиняет боль: держать, бить, ставить, ломать.", 240),
     NERVE_RIGHT_ARM("Оголённый нерв (правая рука)", "Любое действие правой рукой причиняет боль: держать, бить, ставить, ломать.", 240),
@@ -52,7 +55,9 @@ public enum SideEffect {
     NERVE_RIGHT_LEG("Оголённый нерв (правая нога)", "Прыжки и ходьба причиняют боль.", 240),
     // редкие (шанс за один обмен указан в последнем аргументе)
     PSYCHOSIS("Психоз", "Мир погружается во тьму, а чудовища приходят за вами.", 60, 0.005),
-    CANCER("Рак", "Тяжёлая болезнь: вы постепенно слабеете и теряете здоровье.", 600, 0.003);
+    CANCER("Рак", "Тяжёлая болезнь: вы постепенно слабеете и теряете здоровье.", 600, 0.003),
+    RABIES("Бешенство", "Животные нападают на вас, вода вызывает ужас и тошноту, накатывают судороги.", 300, 0.004),
+    POSSESSION("Одержимость", "Вам шепчут голоса, рассудок тает, а тьма смотрит в ответ.", 240, 0.004);
 
     public final String title, message;
     public final int seconds;
@@ -144,26 +149,8 @@ public enum SideEffect {
                 if (a % 200 == 0) fx(p, StatusEffects.NAUSEA, 100, 0);
                 if (a % 400 == 0) fx(p, StatusEffects.DARKNESS, 100, 0);
             }
-            case EPILEPSY -> {
-                Integer end = SEIZURE_END.get(p.getUuid());
-                if (end == null) {
-                    if (a % 600 == 0 && r.nextDouble() < 0.6) {
-                        SEIZURE_END.put(p.getUuid(), a + 60);
-                        if (!p.getMainHandStack().isEmpty()) {
-                            p.dropItem(p.getMainHandStack().copy(), false);
-                            p.getInventory().setStack(p.getInventory().selectedSlot, ItemStack.EMPTY);
-                        }
-                        bar(p, "Припадок!");
-                    }
-                } else if (a >= end || a < end - 100) {
-                    SEIZURE_END.remove(p.getUuid());
-                } else {
-                    fx(p, StatusEffects.SLOWNESS, 10, 4);
-                    fx(p, StatusEffects.NAUSEA, 60, 0);
-                    if (a % 4 == 0) p.networkHandler.requestTeleport(p.getX(), p.getY(), p.getZ(),
-                            p.getYaw() + (r.nextFloat() - 0.5f) * 80f, p.getPitch() + (r.nextFloat() - 0.5f) * 30f);
-                }
-            }
+            case EPILEPSY -> seizure(p, a, r, 600, 0.6);
+            case TREMOR -> { if (sec) fx(p, StatusEffects.MINING_FATIGUE, 60, 0); }
             case DEMENTIA -> { if (a % 600 == 0) fx(p, StatusEffects.NAUSEA, 60, 0); }
             case INCONTINENCE -> {
                 if (a % 400 == 0 && r.nextDouble() < 0.8 && p.getWorld() instanceof ServerWorld sw) {
@@ -187,7 +174,74 @@ public enum SideEffect {
                 if (sec) { fx(p, StatusEffects.WEAKNESS, 60, 1); fx(p, StatusEffects.SLOWNESS, 60, 0); fx(p, StatusEffects.HUNGER, 60, 1); }
                 if (a % 600 == 0 && p.getHealth() > 3f) { p.damage(p.getDamageSources().generic(), 1f); bar(p, "Болезнь забирает силы..."); }
             }
+            case RABIES -> {
+                // водобоязнь: вода и дождь вызывают ужас
+                if (sec && (p.isTouchingWater() || p.isSubmergedInWater())) {
+                    fx(p, StatusEffects.NAUSEA, 100, 0); fx(p, StatusEffects.SLOWNESS, 60, 1); fx(p, StatusEffects.WEAKNESS, 60, 1);
+                    if (a % 100 == 0) bar(p, "Вода! Не могу...");
+                } else if (sec && p.getWorld().hasRain(p.getBlockPos())) {
+                    fx(p, StatusEffects.NAUSEA, 80, 0);
+                }
+                // судороги
+                seizure(p, a, r, 500, 0.5);
+                // агрессия животных
+                if (a % 10 == 0) animalsAttack(p, r);
+            }
+            case POSSESSION -> {
+                if (a % 100 == 0 && r.nextDouble() < 0.7) {
+                    play(p, ModSounds.WHISPER, 1.2f + r.nextFloat() * 3f, 0.9f + r.nextFloat() * 0.25f);
+                    if (r.nextDouble() < 0.5) {
+                        String[] voices = {"...иди к нам...", "...ты не один...", "...открой глаза...", "...отдай нам тело...", "...мы здесь...", "...не оглядывайся..."};
+                        p.sendMessage(Text.literal(voices[r.nextInt(voices.length)]).formatted(Formatting.DARK_GRAY, Formatting.ITALIC), true);
+                    }
+                }
+                if (a % 400 == 0 && r.nextDouble() < 0.6) { fx(p, StatusEffects.DARKNESS, 80, 0); fx(p, StatusEffects.NAUSEA, 60, 0); }
+                if (sec && p.getServer() != null) {   // голоса точат рассудок
+                    BodyState st = BodyState.of(p.getServer());
+                    st.setSanity(p.getUuid(), st.sanity(p.getUuid()) - 1);
+                }
+            }
             default -> { } // оголённые нервы обрабатываются в BodyTradeMod (нужны действия игрока)
+        }
+    }
+
+    /** Припадок: время от времени выпадает предмет, а несколько секунд игрока трясёт. */
+    private static void seizure(ServerPlayerEntity p, int a, Random r, int period, double chance) {
+        Integer end = SEIZURE_END.get(p.getUuid());
+        if (end == null) {
+            if (a % period == 0 && r.nextDouble() < chance) {
+                SEIZURE_END.put(p.getUuid(), a + 60);
+                if (!p.getMainHandStack().isEmpty()) {
+                    p.dropItem(p.getMainHandStack().copy(), false);
+                    p.getInventory().setStack(p.getInventory().selectedSlot, ItemStack.EMPTY);
+                }
+                bar(p, "Припадок!");
+            }
+        } else if (a >= end || a < end - 100) {
+            SEIZURE_END.remove(p.getUuid());
+        } else {
+            fx(p, StatusEffects.SLOWNESS, 10, 4);
+            fx(p, StatusEffects.NAUSEA, 60, 0);
+            if (a % 4 == 0) p.networkHandler.requestTeleport(p.getX(), p.getY(), p.getZ(),
+                    p.getYaw() + (r.nextFloat() - 0.5f) * 80f, p.getPitch() + (r.nextFloat() - 0.5f) * 30f);
+        }
+    }
+
+    /** Бешенство: животные поблизости (кроме прирученных) бегут к игроку и кусают. */
+    private static void animalsAttack(ServerPlayerEntity p, Random r) {
+        if (!(p.getWorld() instanceof ServerWorld sw)) return;
+        int n = 0;
+        for (net.minecraft.entity.passive.AnimalEntity an : sw.getEntitiesByClass(net.minecraft.entity.passive.AnimalEntity.class,
+                p.getBoundingBox().expand(12),
+                x -> x.isAlive() && !x.hasPassengers() && x != p.getVehicle()
+                        && !(x instanceof net.minecraft.entity.passive.TameableEntity t && t.isTamed()))) {
+            if (n++ >= 8) break;
+            an.getNavigation().startMovingTo(p, 1.3);
+            an.getLookControl().lookAt(p, 30f, 30f);
+            if (an.squaredDistanceTo(p) < 5.5 && r.nextFloat() < 0.4f) {
+                p.damage(sw.getDamageSources().mobAttack(an), 2f);
+                sw.playSound(null, an.getBlockPos(), SoundEvents.ENTITY_WOLF_GROWL, SoundCategory.HOSTILE, 0.8f, 0.8f + r.nextFloat() * 0.4f);
+            }
         }
     }
 

@@ -10,7 +10,9 @@
     "InGameHudMixin",
     "LivingEntityRendererMixin",
     "AnimalModelAccessor",
-    "ModelPartAccessor"
+    "ModelPartAccessor",
+    "GameRendererAccessor",
+    "EntityRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -192,6 +192,7 @@ public class BodyTradeMod implements ModInitializer {
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(e -> { e.add(TRADE_BLOCK); e.add(ADMIN_BLOCK); e.add(DEV_BLOCK); e.add(UPGRADE_DEVICE); e.add(LIFE_PARTICLE); e.add(NEURITE_ORE); e.add(NEURITE); e.add(SELENITE_ORE); e.add(SELENITE); e.add(SPECTRAL_PRISM);
             e.add(FLASH_CYBER_EYE); e.add(FLASH_LANTERN); e.add(FLASH_BLADE_ARM); e.add(FLASH_TITAN_BONES); e.add(FLASH_NEUROCHIP); e.add(FLASH_CHRONO); e.add(FLASH_STASIS); e.add(FLASH_MECH_EAR); e.add(LIFE_CONVERTER); });
 
+        ModSounds.init();
         Story.init();
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {

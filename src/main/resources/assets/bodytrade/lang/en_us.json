@@ -24,5 +24,6 @@
   "block.bodytrade.life_converter": "Life Synthesizer",
   "item.bodytrade.flash_mech_ear": "Flash Drive: Mechanical Ear",
   "entity.bodytrade.doctor": "Doctor",
-  "key.bodytrade.quests": "Quest list"
+  "key.bodytrade.quests": "Quest list",
+  "subtitles.bodytrade.whisper": "Whispering"
 }

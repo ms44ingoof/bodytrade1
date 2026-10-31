@@ -60,6 +60,31 @@ public class BodyTradeClient implements ClientModInitializer {
 
     public static int tasksDoneCount() { int c = 0; for (boolean d : taskDone) if (d) c++; return c; }
 
+    /** Активна ли болезнь с таким названием (на клиенте названия - ключи EFFECTS). */
+    public static boolean active(String title) {
+        Long t = EFFECTS.get(title);
+        return t != null && t > System.currentTimeMillis();
+    }
+
+    /** Синдром Капгра: подменяет имя над другим игроком (или именованным существом) на чужое. null - не трогать. */
+    public static net.minecraft.text.Text capgrasName(net.minecraft.entity.Entity e, net.minecraft.text.Text original) {
+        if (!active("Синдром Капгра")) return null;
+        net.minecraft.client.MinecraftClient mc = net.minecraft.client.MinecraftClient.getInstance();
+        if (mc.player == null || mc.getNetworkHandler() == null || e == mc.player) return null;
+        boolean other = e instanceof net.minecraft.entity.player.PlayerEntity || e.hasCustomName();
+        if (!other) return null;
+        String own = original.getString();
+        java.util.List<String> pool = mc.getNetworkHandler().getPlayerList().stream()
+                .map(en -> en.getProfile().getName()).filter(n -> !n.equals(own)).sorted().toList();
+        if (pool.isEmpty()) return null;
+        long bucket = System.currentTimeMillis() / 45000L;   // имя меняется раз в 45 секунд, но не мерцает
+        int idx = Math.floorMod((int) (e.getUuid().hashCode() * 31L + bucket), pool.size());
+        return net.minecraft.text.Text.literal(pool.get(idx)).setStyle(original.getStyle());
+    }
+
+    private static boolean achroLoaded;
+    private static double lastTremorYaw, lastTremorPitch;
+
     /** Прозопагнозия: у животных вместо голов - головы игроков. */
     public static boolean prosopagnosiaActive() {
         Long t = EFFECTS.get("Прозопагнозия");
@@ -265,6 +290,34 @@ public class BodyTradeClient implements ClientModInitializer {
 
         // HUD: потери, болезни, рассудок, задания, виньетки
         HudRenderCallback.EVENT.register((ctx, delta) -> ClientHud.render(ctx));
+
+        // Ахроматопсия: чёрно-белый мир через ванильный пост-эффект desaturate
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            var gr = mc.gameRenderer;
+            if (gr == null) return;
+            boolean want = mc.player != null && active("Ахроматопсия");
+            var acc = (com.example.bodytrade.mixin.GameRendererAccessor) gr;
+            if (want) {
+                if (!achroLoaded || acc.bodytrade$postProcessor() == null) {
+                    acc.bodytrade$loadPostProcessor(new net.minecraft.util.Identifier("shaders/post/desaturate.json"));
+                    achroLoaded = true;
+                }
+            } else if (achroLoaded) {
+                gr.disablePostProcessor();
+                achroLoaded = false;
+            }
+        });
+
+        // Тремор: мелкая дрожь камеры и прицела (колебания вокруг нуля, поэтому взгляд не уплывает)
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            var p = mc.player;
+            if (p == null || mc.currentScreen != null || !active("Тремор")) { lastTremorYaw = 0; lastTremorPitch = 0; return; }
+            double ty = Math.sin(p.age * 1.7) * 0.45 + (p.getRandom().nextDouble() - 0.5) * 0.35;
+            double tp = Math.sin(p.age * 2.3 + 1.0) * 0.35 + (p.getRandom().nextDouble() - 0.5) * 0.30;
+            p.setYaw((float) (p.getYaw() + (ty - lastTremorYaw)));
+            p.setPitch((float) Math.max(-90.0, Math.min(90.0, p.getPitch() + (tp - lastTremorPitch))));
+            lastTremorYaw = ty; lastTremorPitch = tp;
+        });
 
         // Прозопагнозия: слой, рисующий головы игроков на животных
         net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback.EVENT.register((type, renderer, helper, rctx) -> {

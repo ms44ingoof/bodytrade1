@@ -24,5 +24,6 @@
   "block.bodytrade.life_converter": "Синтезатор жизни",
   "item.bodytrade.flash_mech_ear": "Флешка «Механическое ухо»",
   "entity.bodytrade.doctor": "Доктор",
-  "key.bodytrade.quests": "Список заданий"
+  "key.bodytrade.quests": "Список заданий",
+  "subtitles.bodytrade.whisper": "Шёпот"
 }

@@ -1,0 +1,27 @@
+{
+  "possession.whisper": {
+    "subtitle": "subtitles.bodytrade.whisper",
+    "sounds": [
+      {
+        "name": "bodytrade:whisper1",
+        "volume": 0.9,
+        "attenuation_distance": 24
+      },
+      {
+        "name": "bodytrade:whisper2",
+        "volume": 0.9,
+        "attenuation_distance": 24
+      },
+      {
+        "name": "bodytrade:whisper3",
+        "volume": 0.9,
+        "attenuation_distance": 24
+      },
+      {
+        "name": "bodytrade:whisper4",
+        "volume": 0.9,
+        "attenuation_distance": 24
+      }
+    ]
+  }
+}
